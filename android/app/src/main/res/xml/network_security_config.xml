@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ★ لماذا هذا الملف؟
+  سيرفر إرسال أكواد واتساب على `http://162.35.126.155` — أي HTTP
+  صريح بلا تشفير. ومنذ أندرويد 9 (targetSdk ≥ 28) يُمنع ذلك افتراضياً
+  في **بناء release**، بينما يُعطَّل في debug. فالدخول عبر Supabase
+  (HTTPS) كان يعمل، وإرسال كود واتساب (HTTP) كان يُرفض — وهو及应用
+  Google Play الذي يوزّع release.
+
+  ★ النطاق ضيّق عمداً: HTTP مسموح لهذا العنوان وحده، وكل ما
+  عداه يبقى HTTPS فقط. فتحُ HTTP للتطبيق كله weakens the security لـ
+  كل نداءاتك بلا داعٍ، ويرفضه Play في مراجعة finer。把
+-->
+<network-security-config>
+    <!-- افتراضياً: HTTPS فقط — لا استثناء عام. -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- الاستثناء الوحيد: سيرفر أكواد واتساب. -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">162.35.126.155</domain>
+    </domain-config>
+</network-security-config>

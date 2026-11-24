@@ -1,0 +1,37 @@
+# =====================================================================
+#  Codemagic — بناء ملف آيفون لتطبيق الزبون (بلا توقيع)
+# =====================================================================
+#  ملف واحد لكل الأجهزة: Runner-unsigned.ipa يُثبَّت على أي آيفون
+#  عبر أدوات التحميل الجانبي (Sideloadly / AltStore / Xcode).
+#  بلا حساب Apple Developer وبلا شهادة — لذلك لا يصلح لـTestFlight
+#  أو متجر التطبيقات؛ لهما يلزم حساب Apple مدفوع وشهادة توزيع.
+# =====================================================================
+
+workflows:
+  ios-customer:
+    name: iOS — تطبيق الزبون (بلا توقيع)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      flutter: 3.44.3
+      xcode: latest
+      cocoapods: default
+    cache:
+      cache_paths:
+        - $HOME/.pub-cache
+        - $HOME/Library/Caches/CocoaPods
+    scripts:
+      - name: جلب حزم Flutter
+        script: flutter pub get
+      - name: بناء iOS وتغليف IPA
+        script: |
+          set -e
+          flutter build ios --release --no-codesign --target lib/main.dart
+          cd build/ios/iphoneos
+          mkdir -p Payload
+          cp -R Runner.app Payload/
+          zip -qry Runner-unsigned.ipa Payload
+    artifacts:
+      - build/ios/iphoneos/Runner-unsigned.ipa
+      - build/ios/iphoneos/Runner.app
+      - build/ios/iphoneos/Runner.app.dSYM.zip

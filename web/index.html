@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <!--
+    If you are serving your web app in a path other than the root, change the
+    href value below to reflect the base path you are serving from.
+
+    The path provided below has to start and end with a slash "/" in order for
+    it to work correctly.
+
+    For more details:
+    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
+
+    This is a placeholder for base href that will be replaced by the value of
+    the `--base-href` argument provided to `flutter build`.
+  -->
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="اطباء ذي قار — دليل الأطباء وطلب الأدوية والمستلزمات">
+
+  <!-- ★ منع التكبير والتصغير نهائياً على كل الهواتف.
+       maximum-scale=1 + user-scalable=no يوقفان التكبير في أندرويد/كروم،
+       وviewport-fit=cover يجعل التطبيق يملأ الشاشة كاملة خلف الشقّ. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">
+
+  <!-- تثبيت كاختصار على الشاشة (PWA) + لون شريط الحالة. -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="اطباء ذي قار">
+  <meta name="theme-color" content="#008000">
+  <link rel="apple-touch-icon" href="icons/Icon-maskable-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="icons/Icon-maskable-192.png"/>
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/Icon-192.png"/>
+  <link rel="icon" type="image/png" sizes="512x512" href="icons/Icon-512.png"/>
+
+  <title>اطباء ذي قار</title>
+  <link rel="manifest" href="manifest.json">
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      width: 100%;
+      overflow: hidden;
+      background-color: #F4FAF4;
+    }
+    /* إخفاء أشرطة التمرير (عامود التنزيل/التصعيد) */
+    ::-webkit-scrollbar {
+      width: 0;
+      height: 0;
+      display: none;
+    }
+    * {
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+
+    /* ★ منع نسخ النصوص: لا تحديد ولا قائمة نسخ ولا سحب نص.
+       حقول الإدخال تبقى قابلة للكتابة واللصق (كود واتساب يُلصق). */
+    * {
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    input, textarea {
+      -webkit-user-select: text;
+      -moz-user-select: text;
+      -ms-user-select: text;
+      user-select: text;
+    }
+
+    /* منع تكبير النقرتين ومنع سحب الصفحة خارج حدودها. */
+    html, body {
+      touch-action: manipulation;
+      overscroll-behavior: none;
+    }
+
+    /* ★ إخفاء شعار Netlify احتياطياً: الشعار يُبنى داخل iframe
+       (nl-badge-frame) يحقنه Netlify في نهاية الصفحة على الخطة
+       المجانية. السكربت أدناه يحذف العنصر، وCSS هنا شبكة أمان. */
+    #nl-badge-frame, #nl-hud-frame {
+      display: none !important;
+      visibility: hidden !important;
+      pointer-events: none !important;
+    }
+  </style>
+  <script>
+    // ★ منع نسخ النصوص وقائمة الضغط المطول وسحب الصور — لكن يبقى
+    //   اللصق (Paste) شغالاً حتى يلصق الزبون كود واتساب في حقله.
+    document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+    document.addEventListener('copy', function (e) { e.preventDefault(); });
+    document.addEventListener('cut', function (e) { e.preventDefault(); });
+    document.addEventListener('dragstart', function (e) { e.preventDefault(); });
+    // ★ iOS سفاري يتجاهل user-scalable=no: نمنع إيماءة التكبير
+    //   (قرصة/تكبير مزدوج) برمجياً حتى لا يكبر التطبيق أبداً.
+    document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
+    document.addEventListener('dblclick', function (e) { e.preventDefault(); });
+
+    // ★★ إزالة شعار «Powered by Netlify»: Netlify يحقنه في نهاية
+    //   الصفحة كسكربت async يبني الشعار داخل iframe بمعرّف
+    //   `nl-badge-frame` (أو `nl-hud-frame` لصاحب الموقع). الحذف
+    //   يستهدف الـiframe نفسه — العناصر داخله (srcdoc) لا يصلها
+    //   كود الصفحة. مراقب الطفرات يمسك أي إعادة حقن لاحقة.
+    (function () {
+      var BADGE_IDS = ['nl-badge-frame', 'nl-hud-frame', 'nl-badge', 'nl-card'];
+      function killNetlifyBadge() {
+        for (var i = 0; i < BADGE_IDS.length; i++) {
+          var el = document.getElementById(BADGE_IDS[i]);
+          if (el && el.parentNode) el.parentNode.removeChild(el);
+        }
+        // إزالة وسم السكربت المحقون نفسه كي لا يُعاد تشغيله.
+        var tags = document.querySelectorAll('script[data-nf-variant]');
+        for (var j = 0; j < tags.length; j++) {
+          if (tags[j].parentNode) tags[j].parentNode.removeChild(tags[j]);
+        }
+      }
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', killNetlifyBadge);
+      } else {
+        killNetlifyBadge();
+      }
+      window.addEventListener('load', killNetlifyBadge);
+      if (window.MutationObserver) {
+        new MutationObserver(killNetlifyBadge).observe(
+          document.documentElement,
+          { childList: true, subtree: true }
+        );
+      }
+    })();
+
+    // ★★ تثبيت التطبيق: المتصفح (كروم/إيدج) يعرض حدث beforeinstallprompt
+    //   عند توفر شروط التثبيت. نلتقطه ونخزنه حتى ينادي عليه زر
+    //   «تثبيت الآن» في بطاقة التثبيت داخل التطبيق (Dart → JS).
+    window.__saydalitiInstallPrompt = null;
+    window.addEventListener('beforeinstallprompt', function (e) {
+      e.preventDefault();
+      window.__saydalitiInstallPrompt = e;
+    });
+    window.__saydalitiInstall = function () {
+      var e = window.__saydalitiInstallPrompt;
+      if (!e) return false;
+      e.prompt();
+      window.__saydalitiInstallPrompt = null;
+      return true;
+    };
+    window.__saydalitiCanInstall = function () {
+      return !!window.__saydalitiInstallPrompt;
+    };
+  </script>
+</head>
+<body>
+  <!--
+    You can customize the "flutter_bootstrap.js" script.
+    This is useful to provide a custom configuration to the Flutter loader
+    or to give the user feedback during the initialization process.
+
+    For more details:
+    * https://docs.flutter.dev/platform-integration/web/initialization
+  -->
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>

@@ -1,0 +1,99 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# ===== SECRETS - never commit =====
+tools/service-account.json
+tools/.push_secret.txt
+tools/push_secret.txt
+tools/.env
+.env
+qrlogn/.env
+qrlogn/data/
+tools/.push_state.json
+tools/.push_items_state.json
+
+# ===== SIGNING KEYS - never commit (任何人 with these can sign as you) =====
+*.jks
+*.keystore
+android/key.properties
+key.properties
+# Local Netlify folder
+.netlify
+
+# ===== Firebase service account — مفتاح سيرفر حقيقي =====
+notify-server/fcm-service-account.json
+
+# ===== Build artifacts (لا تُرفع إلى المستودع) =====
+*.apk
+*.aab
+*.ipa
+*.xcarchive
+/dist/
+
+# ===== ضوضاء محلية: نسخ احتياطية وأدوات مبنية ولقطات =====
+node_modules/
+/tmp/
+/backup/
+/_spx/
+/_sp.zip
+/_pw_scrub_backup/
+/_backup_empty_icons/
+/vibe_images/
+tools/supabase_cli/
+*.exe
+
+# ===== أسرار لا تُرفع أبداً (٢٠٢٦-١١-٢٤) =====
+android/KEY-BACKUP-DO-NOT-DELETE.txt
+*.jks
+*.keystore
+android/key.properties
+*.p8
+fcm-service-account.json
+fcm-diqarapp.json
+tools/service-account.json
+*.mobileprovision
+*.p12
+*service-account*.json

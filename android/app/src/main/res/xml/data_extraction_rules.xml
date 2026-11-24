@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ★ Why this file exists (Android 12+ / API 31+)
+  `android:allowBackup="false"` alone does NOT stop backup on modern
+  Android: device-to-device transfer and cloud backup are governed by
+  this ruleset. Without it, a user's token/phone could land in a cloud
+  backup. We exclude everything.
+
+  NOTE: `allowBackup="false"` is set in the manifest too - the two must
+  agree, or the platform picks the more permissive one.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+        <exclude domain="file" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+        <exclude domain="file" />
+    </device-transfer>
+</data-extraction-rules>

@@ -1,0 +1,8 @@
+# إعدادات Supabase المحلية / النشر — سنتر الشطرة
+# https://supabase.com/docs/guides/cli/config
+
+project_id = "strasopa"
+
+[functions.push-worker]
+# نتحقق بكلمة السر داخل الدالة (لأن الاستدعاء يأتي من مُشغِّل SQL)
+verify_jwt = false

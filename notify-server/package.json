@@ -1,0 +1,15 @@
+{
+  "name": "strasopa-notify",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "SSE notification stream — order + price/product change fanout. Read-only on Supabase.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {}
+}

@@ -1,0 +1,10 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!--
+  يحافظ على نغمات الإشعارات داخل الـ APK بعد تصغير الموارد (shrinkResources).
+
+  هذه الملفات تُقرأ بالاسم عبر resources.getIdentifier في MainActivity.kt،
+  والـ Resource Shrinker لا يكتشف المراجع.Dynamic، فبدون هذا الملف يحذفها
+  من البناء وتفقد كل القنوات صوتها.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@raw/new_order,@raw/accepted,@raw/delivering,@raw/rejected,@raw/replaced,@raw/delivered,@raw/alert" />

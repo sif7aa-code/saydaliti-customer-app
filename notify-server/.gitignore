@@ -1,0 +1,5 @@
+# ★ مفتاح توقيع Firebase — **لا يُرفع أبداً** (يسرّب أي حساب).
+#   من Firebase Console → Project Settings → Service accounts.
+fcm-service-account.json
+*service-account*.json
+.env

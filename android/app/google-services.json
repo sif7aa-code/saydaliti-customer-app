@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "828586455121",
+    "project_id": "diqarapp",
+    "storage_bucket": "diqarapp.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:828586455121:android:24c3115858fbe66f408870",
+        "android_client_info": {
+          "package_name": "com.saydaliti.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAwm-IRxfBp6O_TCzkKdhJHh6meaX2Om2k"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

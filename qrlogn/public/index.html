@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ربط واتساب — أكواد الدخول</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <header class="head">
+        <div class="logo">WA</div>
+        <div>
+          <h1>ربط واتساب</h1>
+          <p class="sub">امسح الرمز، ثم أرسل أكواد دخول تطبيقك</p>
+        </div>
+        <span id="badge" class="badge">جارٍ البدء…</span>
+      </header>
+
+      <section class="card">
+        <h2>1) حالة الربط</h2>
+        <div class="qr-box">
+          <div id="qrWrap" class="qr-wrap">
+            <div class="spinner"></div>
+          </div>
+          <div class="qr-side">
+            <p id="stateText" class="state">في انتظار ربط واتساب…</p>
+            <p class="hint">
+              افتح واتساب على الهاتف ← <b>الأجهزة المرتبطة</b> ←
+              <b>ربط جهاز</b>، ثم امسح الرمز.
+            </p>
+            <div class="row">
+              <button id="btnRefresh" class="btn ghost">تحديث رمز QR</button>
+              <button id="btnLogout" class="btn danger ghost">فصل الجلسة</button>
+            </div>
+          </div>
+        </div>
+        <dl class="kv">
+          <div><dt>الرقم</dt><dd id="phone">—</dd></div>
+          <div><dt>أكواد نشطة</dt><dd id="active">—</dd></div>
+          <div><dt>آخر ساعة</dt><dd id="lastHour">—</dd></div>
+          <div><dt>صلاحية الكود</dt><dd id="ttl">—</dd></div>
+        </dl>
+      </section>
+
+      <section class="card">
+        <h2>2) تسجيل دخول بأي رقم</h2>
+        <ol class="steps">
+          <li id="step1">
+            <form id="sendForm" class="form">
+              <input
+                id="phoneInput"
+                type="tel"
+                inputmode="numeric"
+                placeholder="07xxxxxxxx أو 9647xxxxxxxx"
+                autocomplete="off"
+                required
+              />
+              <button class="btn" type="submit">إرسال كود الدخول</button>
+            </form>
+            <p id="sendMsg" class="msg"></p>
+          </li>
+
+          <li id="step2" class="hidden">
+            <form id="verifyForm" class="form">
+              <input
+                id="codeInput"
+                type="text"
+                inputmode="numeric"
+                maxlength="6"
+                placeholder="6 أرقام"
+                autocomplete="one-time-code"
+                class="code-input"
+              />
+              <button class="btn" type="submit">تحقق</button>
+              <button type="button" id="btnResend" class="btn ghost">إعادة إرسال</button>
+            </form>
+            <p id="verifyMsg" class="msg"></p>
+            <div id="tokenBox" class="token hidden">
+              <div class="token-head">
+                <span>تم تسجيل الدخول</span>
+                <button id="tokenOutToggle" class="btn ghost small">إظهار</button>
+                <button id="btnCopy" class="btn ghost small">نسخ التوكن</button>
+                <button id="btnNewLogin" class="btn ghost small">رقم آخر</button>
+              </div>
+              <p id="tokenOut" class="msg mono masked">••••••••••••••••••••</p>
+            </div>
+          </li>
+        </ol>
+      </section>
+
+      <section class="card">
+        <h2>3) آخر إرسال</h2>
+        <ul id="logs" class="logs"></ul>
+      </section>
+
+      <section class="card">
+        <h2>4) ربط التطبيق</h2>
+        <p class="hint">
+          استعمل الترويسة <code>x-api-key</code> في كل طلب، ثم:
+        </p>
+        <pre class="code">POST /api/auth/code   { "phone": "9647xxxxxxxx" }  → يرسل الكود
+POST /api/auth/verify { "phone": "9647xxxxxxxx", "code": "123456" } → token</pre>
+        <div class="row">
+          <button id="btnKey" class="btn ghost small">إظهار مفتاح الـ API</button>
+          <button id="keyOutToggle" class="btn ghost small">إظهار</button>
+        </div>
+        <p id="keyOut" class="msg mono masked">••••••••••••••••••••</p>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

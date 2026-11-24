@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- شاشة البدء الأصلية (أندرويد 5+): كحلي عميق يطابق شاشة البداية
+     داخل التطبيق (كانت بيضاء فتُحدث وميضاً أبيض قبل الغلاف الكحلي). -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/launch_navy" />
+</layer-list>

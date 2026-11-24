@@ -1,0 +1,191 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <!-- إشعارات Firebase (FCM) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- إشعارات Firebase في الخلفية -->
+    <uses-permission android:name="android.permission.VIBRATE"/>
+    <uses-permission android:name="com.google.firebase.MESSAGING_EVENT"/>
+    <!-- ★ سياسة Google Play لأذونات الصور والفيديوهات: اختيار الصور يتم عبر
+         «أداة اختيار الصور من Android» (Photo Picker) داخل image_picker، وهي
+         لا تحتاج إذناً. لذلك حُذف READ_MEDIA_IMAGES نهائياً (كان يمنع إرسال
+         الإصدار للمراجعة برقم 1009046). يبقى إذن الاختيار الجزئي وإذن
+         التخزين القديم (حتى أندرويد 12) لأنهما غير مخالفين. -->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED"/>
+
+    <!-- أندرويد 14+ تتطلب هذين الإذنين صراحةً قبل أي خدمة أمامية. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <!-- إعادة تشغيل المراقب بعد إعادة تشغيل الهاتف -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <!-- منع الجهاز من إيقاف العملية أثناء جلب الإشعارات -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+
+    <!-- توسيع الشاشة الرئيسية لكامل عرض الشاشة على جميع الأجهزة (يمنع تقييد
+         العرض / المساحات البيضاء الجانبية على الشاشات الطويلة وأجهزة الطي).
+         ★ 2026-10-28: كان هنا «android:anyAspectRatio» و«android:resizeable»
+         داخل <supports-screens>، ولا وجود لهذين السِّمين في هذا العنصر،
+         فرفض AAPT بناء الـAPK من أساسه. الصيغة الصحيحة التي تحقق نفس الهدف:
+         «android:resizeableActivity=true» على <application> (من أندرويد ٧)
+         تفتح كل الأنشطة على أي نسبة وأيّ حجم شاشة، مع <supports-screens>
+         الذي يصرّح بكل الأحجام وكثافتها. السقف «maxAspectRatio=3.0» يبقى
+         كما هو على <application> لأنه أعلى من أي نسبة شاشة حقيقية. -->
+    <supports-screens
+        android:anyDensity="true"
+        android:smallScreens="true"
+        android:normalScreens="true"
+        android:largeScreens="true"
+        android:xlargeScreens="true" />
+
+    <!-- ★★ المحرّك الرسومي: «Skia» بدل «Impeller» (طلب ٢٠٢٦-١٠-٢٨:
+         «شغال على جميع الإصدارات والأجهزة»).
+         Impeller هو الافتراضي منذ Flutter 3.32، ومع بطاقات الرسوم القديمة
+         (Mali‑400 وMali‑T Series، وAdreno من الجيل الثالث والرابع في هواتف
+         أندرويد ٧ و٨) معروف أنه يعطي شاشة سوداء أو تعثّراً عند أول رسم.
+         Skia هو المسار الذي عملت عليه كل نسخ التطبيق السابقة، وهو المتأكد
+         أنه يفتح على هاتف الاختبار وعلى الهواتف القديمة.
+         لا أثر لهذا على الإشعارات ولا على الحماية ولا على حجم الحزمة. -->
+    <meta-data
+        android:name="io.flutter.embedding.android.EnableImpeller"
+        android:value="false" />
+
+    <application
+        android:label="${appName}"
+        android:name=".StrasopaApplication"
+        android:icon="@mipmap/ic_launcher"
+        android:maxAspectRatio="3.0"
+        android:resizeableActivity="true"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:hasFragileUserData="false">
+        <!-- إشعارات Firebase (FCM) — القناة الافتراضية عالية الأهمية.
+             لأن importance = HIGH في StrasopaApplication، يستيقظ النظام
+             ويعرض الإشعار فوراً حتى والتطبيق مغلق/مُقتل (Killed State).
+             الرسائل التي تحمل channelId خاصاً بها تستعمل قنواتها المخصّصة. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="high_importance_channel" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_name"
+            android:resource="@string/default_notification_channel_name" />
+        <!-- أيقونة شريط الحالة: بيضاء صغيرة (أندرويد لا يقبل أيقونة ملونة هنا) -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_notification" />
+        <!-- لون نقطة الأيقونة في شريط الحالة -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/notification_accent" />
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize"
+            android:resizeableActivity="true">
+            <!-- Specifies an Android theme to apply to this Activity as soon as
+                 the Android process has started. This theme is visible to the user
+                 while the Flutter UI initializes. After that, this theme continues
+                 to determine the Window background behind the Flutter UI. -->
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+            <!-- ══ الضغط على إشعار FCM ══
+                 هنا يسجّل FCM نية الضغط على الإشعار. بإضافة هذا الفلتر
+                 يصبح intent الإقلاع يحمل extras الإشعار، فيقرأه
+                 `getInitialMessage` في Dart — وهو ما يجعل فتح التطبيق
+                 من إشعار يعمل في حالة Killed State.
+                 launchMode="singleTop" أعلاه يضمن عدم تكرار نسخة
+                 من الشاشة إذا كان التطبيق مفتوحاً في الخلفية. -->
+            <intent-filter>
+                <action android:name="FLUTTER_NOTIFICATION_CLICK"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+            </intent-filter>
+        </activity>
+
+        <!-- ══ خدمة استقبال FCM (Android native) ══
+             معرّفة صراحةً كي لا يحذفها R8/proguard. وظيفتها التقاط حمولة
+             الرسالة في FcmLaunchStore قبل أن يستلمها محرك Flutter،
+             فتبقى البيانات متاحة عند بدء التشغيل من إشعار. -->
+        <service
+            android:name=".FcmMessagingService"
+            android:directBootAware="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT"/>
+            </intent-filter>
+        </service>
+
+        <!-- ══ خدمة المراقبة الخلفية (استطلاع الإشعارات) ══
+             Foreground Service تبقي عملية التطبيق حيّة وتستدعي
+             `pollNotificationsOnce()` في Dart كل دقيقة عبر قناة
+             `strasopa/bg_monitor` — أي إشعارات خارجية تصل حتى والتطبيق
+             مغلق تماماً. إشعارها صامت ومنخفض الأهمية (لا يزعج المستخدم)،
+             والقنوات الحقيقية للإشعارات هي NotifyChannels.
+
+             FCM يبقى القناة الفورية الأساسية (أقل من ثانية) وهذه شبكة
+             أمان كل دقيقة إن لم يصل FCM. -->
+        <service
+            android:name=".BackgroundMonitorService"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="dataSync"/>
+
+        <!-- ══ إعادة تشغيل المراقب بعد إعادة تشغيل الهاتف ══
+             بدون هذا الـ Receiver تبقى الخدمة ميتة حتى يفتح المستخدم التطبيق
+             يدوياً، فلا تصل إشعارات الخلفية. -->
+        <receiver
+            android:name=".BootReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
+            </intent-filter>
+        </receiver>
+
+        <!-- Don't delete the meta-data below.
+             This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+    </application>
+    <!-- Required to query activities that can process text, see:
+         https://developer.android.com/training/package-visibility and
+         https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.
+
+         In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT"/>
+            <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- required لرؤية المتصفح وفتح رابط سياسة الخصوصية على Android 11+ -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <category android:name="android.intent.category.BROWSABLE"/>
+            <data android:scheme="https"/>
+        </intent>
+        <!-- رؤية تطبيق إنستغرام حتى يُفتح حسابه الرسمي مباشرة على Android 11+؛
+             بلا هذا السطر لا يظهر التطبيق فيُفتح المتصفح بدلاً منه -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="instagram"/>
+        </intent>
+    </queries>
+</manifest>

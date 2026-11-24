@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- اسم القناة الافتراضية عالية الأهمية لإشعارات FCM.
+         يظهر في إعدادات النظام، ويُستعمل أيضاً في
+         AndroidManifest ⇒ com.google.firebase.messaging.default_notification_channel_name -->
+    <string name="default_notification_channel_name">تنبيهات فورية</string>
+</resources>

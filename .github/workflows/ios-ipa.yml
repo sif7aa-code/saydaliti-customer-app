@@ -1,0 +1,53 @@
+# بناء IPA لتطبيق الزبون على GitHub (بلا توقيع — يحتاج Sideloadly/AltStore للتثبيت)
+name: iOS IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'lib/**'
+      - 'ios/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - '.github/workflows/ios-ipa.yml'
+
+jobs:
+  build:
+    # ★ ٢٠٢٦-١١-٢٤: macos-15 (arm64) ألغى المهمة مرتين بلا بدء
+    #   («not acquired by Runner») لضغط على الخوادم؛ Intel متاح.
+    runs-on: macos-15-intel
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.3'
+          channel: stable
+          cache: true
+
+      - name: جلب حزم Flutter
+        run: flutter pub get
+
+      - name: بناء iOS بلا توقيع
+        run: flutter build ios --release --no-codesign --target lib/main.dart
+
+      - name: تغليف IPA وطباعة الإصدار
+        run: |
+          set -euo pipefail
+          cd build/ios/iphoneos
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' Runner.app/Info.plist
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Runner.app/Info.plist
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' Runner.app/Info.plist
+          /usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' Runner.app/Info.plist
+          mkdir -p Payload
+          cp -R Runner.app Payload/
+          zip -qry Runner-unsigned.ipa Payload
+          ls -lh Runner-unsigned.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Runner-unsigned-ipa
+          path: build/ios/iphoneos/Runner-unsigned.ipa
+          retention-days: 30
