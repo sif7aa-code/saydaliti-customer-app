@@ -90,7 +90,9 @@ class _NavItemButton extends StatelessWidget {
       child: Center(
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          // ★ ستة تبويبات (2026-11-24): 7 بدل 10 حتى تتسع الحبوة
+          //   لكل اسم عربي بلا تجاوز على شاشة 360dp.
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
           decoration: BoxDecoration(
             color: isActive ? AppColors.navPill : Colors.transparent,
             borderRadius: BorderRadius.circular(18),
@@ -135,13 +137,17 @@ class _NavItemButton extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 2),
-              Text(
-                item.label,
-                style: GoogleFonts.cairo(
-                  color: color,
-                  fontSize: 10.5,
-                  height: 1,
-                  fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  item.label,
+                  maxLines: 1,
+                  style: GoogleFonts.cairo(
+                    color: color,
+                    fontSize: 10.5,
+                    height: 1,
+                    fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
+                  ),
                 ),
               ),
             ],

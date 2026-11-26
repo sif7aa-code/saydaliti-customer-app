@@ -3,16 +3,17 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../core/theme/app_colors.dart';
 import '../core/utils/currency_formatter.dart';
+import '../core/utils/deduction_label.dart';
 import '../services/auth_service.dart';
 import '../services/supabase_service.dart';
 import '../services/tab_refresh.dart';
 import '../widgets/app_refresh_indicator.dart';
 
-/// ★ محفظة التاجر — الرصيد الحقيقي **بعد** قِص عمولة المنصة 10%.
+/// ★ محفظة التاجر — الرصيد الحقيقي **بعد** قِص الاستقطاع الذي حدده الأدمن.
 ///
-/// ★ ليس مجموع مبيعاته: `balance` = `net` أي 90% من طلباته
-///   المسلَّمة، مطروحاً منها عمولة 10% لكل طلب **خاصه هو**.
-///   عرض 100% كان يقول له إن له أكثر مما له فعلاً.
+/// ★ ليس مجموع مبيعاته: `balance` = `net` أي مبيعاته المسلَّمة بعد
+///   استقطاع (ثابت أو نسبة — يضبطه الأدمن لكل صيدلية) لكل طلب
+///   **خاص به هو**. عرض 100% كان يقول له إن له أكثر مما له فعلاً.
 class ShopWalletScreen extends StatefulWidget {
   const ShopWalletScreen({super.key, this.ownerPhone, this.title});
 
@@ -89,8 +90,11 @@ class _ShopWalletScreenState extends State<ShopWalletScreen>
   Widget build(BuildContext context) {
     final data = _data;
     final rows = (data?['rows'] as List?) ?? const [];
-    final rate = (data?['commission_rate'] as num?)?.toInt() ??
-        SupabaseService.defaultCommissionRate;
+    final deduction = deductionText(
+      deductionMethodOf(data?['deduction_method']),
+      _d(data?['deduction_value']),
+      unit: 'طلب',
+    );
     // ★ عدد الطلبات من صيدليته: `entries` هي الحقيقة المحتسبة في
     //   الرصيد (طلبات مسلَّمة لها قيود ربح)؛ وإن غابت فالاحتياطي
     //   عدد الصفوف المعروضة.
@@ -146,7 +150,7 @@ class _ShopWalletScreenState extends State<ShopWalletScreen>
                       child: Column(
                         children: [
                           Text(
-                            'رصيدك بعد العمولة',
+                            'رصيدك بعد الاستقطاع',
                             style: GoogleFonts.cairo(
                               color: Colors.white70,
                               fontSize: 13,
@@ -163,7 +167,7 @@ class _ShopWalletScreenState extends State<ShopWalletScreen>
                             ),
                           ),
                           Text(
-                            '${data['shop_name'] ?? ''} · $rate% عمولة على كل طلب',
+                            '${data['shop_name'] ?? ''} · استقطاع $deduction',
                             style: GoogleFonts.cairo(
                               color: Colors.white70,
                               fontSize: 12,
@@ -192,7 +196,7 @@ class _ShopWalletScreenState extends State<ShopWalletScreen>
                         ),
                         const SizedBox(width: 10),
                         _stat(
-                          'عمولة المنصة',
+                          'الاستقطاع',
                           _d(data['commission']),
                           AppColors.danger,
                         ),
@@ -284,7 +288,7 @@ String _label(Map<String, dynamic> r) {
             const SizedBox(height: 2),
             Text(
               'مبيعات ${CurrencyFormatter.format(_d(r['gross']))}'
-              '  −  عمولة ${CurrencyFormatter.format(_d(r['commission']))}',
+              '  −  استقطاع ${CurrencyFormatter.format(_d(r['commission']))}',
               style: GoogleFonts.cairo(
                 fontSize: 11,
                 fontWeight: FontWeight.w600,

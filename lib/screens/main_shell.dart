@@ -10,6 +10,7 @@ import 'doctors_home_screen.dart';
 import 'favorite_doctors_screen.dart';
 import 'home_screen.dart';
 import 'login_screen.dart';
+import 'my_doctor_appointments_screen.dart';
 import 'shops_screen.dart';
 
 /// الهيكل الرئيسي للتطبيق: يضم الشاشات والشريط السفلي.
@@ -38,8 +39,11 @@ class _MainShellState extends State<MainShell> {
     //   السفلي، والحجز يبقى من بروفايل الطبيب كما هو.
     //   شريحة «الأدوية» في نهاية شرائح الدليل تفتح تبويب الأدوية.
     //   «المفضلة» تبويب مستقل يعرض كل من أُضيف إلى مفضلة الدليل.
+    //   «حجوزاتي» تبويب مستقل للزبون (2026-11-24): كان زرّاً داخل شاشة
+    //   الحجز فقط، فصار في الشريط السفلي مثل بقية شاشاته.
     DoctorsHomeScreen(onOpenTab: _goToTab),
     const FavoriteDoctorsScreen(),
+    const MyDoctorAppointmentsScreen(),
     HomeScreen(),
     ShopsScreen(),
     AccountScreen(isGuest: widget.isGuest),
@@ -57,10 +61,15 @@ class _MainShellState extends State<MainShell> {
   static const List<String> _tabIds = [
     'home',
     'favs',
+    'bookings',
     'meds',
     'shops',
     'account',
   ];
+
+  /// التبويبان اللذان يحتاجان جلسة دخول (تُفتح شاشة الدخول أولاً للزائر).
+  static const int _bookingsTab = 2;
+  static const int _accountTab = 5;
 
   void _goToTab(int index) {
     // ★ بلا خروج مبكر عند التبويب المحدّد: النقرة على الزرّ الذي أنت
@@ -122,10 +131,10 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
-  /// ★ الشريط: الرئيسية = دليل الأطباء، ثم المفضلة، ثم الأدوية (الرئيسية
-  ///   القديمة) والصيدليات وحسابي. «حجز طبيب» أُخرج من الشريط وبقي من
-  ///   بروفايل الطبيب. تبويب «خدمات» أُخرج سابقاً: طلب المندوب صار بطاقة
-  ///   داخل تبويب الأدوية.
+  /// ★ الشريط: الرئيسية = دليل الأطباء، ثم المفضلة، ثم حجوزاتي، ثم الأدوية
+  ///   (الرئيسية القديمة) والصيدليات وحسابي. «حجز طبيب» أُخرج من الشريط
+  ///   وبقي من بروفايل الطبيب. تبويب «خدمات» أُخرج سابقاً: طلب المندوب
+  ///   صار بطاقة داخل تبويب الأدوية.
   static const List<BottomNavItem> _navItems = [
     BottomNavItem(
       label: 'الرئيسية',
@@ -136,6 +145,11 @@ class _MainShellState extends State<MainShell> {
       label: 'المفضلة',
       icon: Icons.favorite_border_rounded,
       activeIcon: Icons.favorite_rounded,
+    ),
+    BottomNavItem(
+      label: 'حجوزاتي',
+      icon: Icons.event_note_outlined,
+      activeIcon: Icons.event_note_rounded,
     ),
     BottomNavItem(
       label: 'الأدوية',
@@ -162,9 +176,9 @@ class _MainShellState extends State<MainShell> {
     //   نفسه الذي تقرأه بقية الشاشات.
     final loggedIn = AuthService.instance.isLoggedIn;
 
-    // ★ «حسابي» (4) لا يفتح للزائر: شاشة الدخول أولاً ثم ينقله الهيكل
-    //   إلى الزرّ الذي ضغطه.
-    if (index == 4 && !loggedIn) {
+    // ★ «حجوزاتي» و«حسابي» لا يفتحان للزائر: شاشة الدخول أولاً ثم ينقله
+    //   الهيكل إلى الزرّ الذي ضغطه.
+    if ((index == _bookingsTab || index == _accountTab) && !loggedIn) {
       _openLoginForTab(index);
       return;
     }
@@ -173,7 +187,7 @@ class _MainShellState extends State<MainShell> {
   }
 
   /// ★ يفتح شاشة تسجيل الدخول من شريط التنقّل، وبعد نجاح الدخول ينقل
-  ///   التبويب إلى الزرّ الذي ضغطه المستخدم (`4` لحسابي).
+  ///   التبويب إلى الزرّ الذي ضغطه المستخدم (حجوزاتي أو حسابي).
   ///   الشاشة تُزيح نفسها بـ`pop` عند وجود `onLoginSuccess`، فيعود إلى
   ///   الهيكل نفسه — بلا إعادة تشغيل ولا فقدان لفهرس التبويبات.
   void _openLoginForTab(int index) {

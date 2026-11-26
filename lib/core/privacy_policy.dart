@@ -11,20 +11,19 @@ import 'theme/app_colors.dart';
 class PrivacyPolicy {
   PrivacyPolicy._();
 
-  /// الصفحة الكاملة (مدوّنة رسمية عامة، بلا تسجيل دخول، لكل العالم).
-  static const String fullUrl =
-      'https://shatra-center.blogspot.com/p/blog-page.html';
+  /// الصفحة الكاملة (موقع رسمي عام، بلا تسجيل دخول، لكل العالم).
+  static const String fullUrl = 'https://saydaliti-privacy.netlify.app/';
 
   /// صفحة «عن التطبيق».
   static const String aboutUrl =
-      'https://shatra-center.blogspot.com/p/blog-page_23.html';
+      'https://saydaliti-privacy.netlify.app/#about';
 
   /// بريد التواصل المذكور في السياسة.
   static const String contactEmail = 'mnstalshtrt@gmail.com';
 
   static const List<String> summaryPoints = <String>[
-    'ندخل رقم هاتفك ورمز التحقق فقط لإنشاء حسابك، والاسم والعنوان اللذان تكتبهما لإتمام الطلب.',
-    'نحفظ طلباتك وموقع التسليم الذي تحدده بنفسك وصور المنتجات التي يرفعها التاجر.',
+    'ندخل رقم هاتفك وكلمة المرور لإنشاء حسابك وتسجيل الدخول، والاسم الذي تكتبه لإتمام الحجز أو الطلب.',
+    'نحفظ حجوزاتك وطلباتك وعنوان التسليم الذي تحدده بنفسك، ورسائلك مع العيادة لا يراها إلا طرفا المحادثة.',
     'الصور تُختار بأداة اختيار الصور في نظام أندرويد، فلا يطّلع التطبيق على بقية صور جهازك.',
     'تُشارك بيانات الطلب مع الصيدلية التي تطلب منها ومع المندوب المسؤول عن توصيل طلبك، ولا تُباع لأي جهة.',
   ];

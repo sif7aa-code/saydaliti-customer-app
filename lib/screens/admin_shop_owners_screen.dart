@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../core/theme/app_colors.dart';
 import '../core/utils/currency_formatter.dart';
+import '../core/utils/deduction_label.dart';
 import '../services/supabase_service.dart';
 import 'admin_shop_owner_details_screen.dart';
 import 'admin_shop_reset_flow.dart';
@@ -67,7 +68,7 @@ class _AdminShopOwnersScreenState extends State<AdminShopOwnersScreen> {
           phone,
           shopName: shop?['name']?.toString().trim() ?? '',
         );
-        // ★ مبلغ الصيدلية (بعد عمولة المنصة 10%) من نفس دفتر التاجر:
+        // ★ مبلغ الصيدلية (بعد الاستقطاع الذي حدده الأدمن) من نفس دفتر التاجر:
         //   `get_shop_balance` هي التي تقرأها «محفظتي» عند صاحب الصيدلية،
         //   فلا رقمان مختلفان لنفس الصيدلية بين اللوحة والمحفظة.
         final wallet =
@@ -307,7 +308,7 @@ class _OwnerCardState extends State<_OwnerCard> {
               ),
               const SizedBox(height: 8),
               // ★ مبلغ هذه الصيدلية كما في «محفظتي» عند صاحبها:
-              //   السعر الكلي، استقطاع المنصة 10%، والمستحق الآن.
+              //   السعر الكلي، الاستقطاع (ثابت أو نسبة)، والمستحق الآن.
               _ShopWalletLine(
                 shopName: shopName,
                 wallet: Map<String, dynamic>.from(
@@ -362,7 +363,7 @@ class _OwnerCardState extends State<_OwnerCard> {
 
 /// ★ سطر محفظة الصيدلية داخل بطاقة «أصحاب الصيدليات».
 ///
-/// يعرض **المبلغ المستحق** (بعد عمولة المنصة) بخط بارز، وتحته السعر
+/// يعرض **المبلغ المستحق** (بعد الاستقطاع) بخط بارز، وتحته السعر
 /// الكلي والاستقطاع — كلها من `get_shop_balance` نفسها التي يقرأها
 /// صاحب الصيدلية في «محفظتي»، فلا رقمان مختلفان لنفس الصيدلية.
 class _ShopWalletLine extends StatelessWidget {
@@ -374,7 +375,11 @@ class _ShopWalletLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     double n(String k) => (wallet[k] as num?)?.toDouble() ?? 0;
-    final rate = SupabaseService.commissionRateOf(wallet);
+    final rule = deductionText(
+      deductionMethodOf(wallet['deduction_method']),
+      n('deduction_value'),
+      unit: 'طلب',
+    );
     final due = n('balance');
     final gross = n('gross');
     final commission = n('commission');
@@ -422,7 +427,7 @@ class _ShopWalletLine extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             'السعر الكلي: ${CurrencyFormatter.format(gross)}  ·  '
-            'استقطاع $rate%: ${CurrencyFormatter.format(commission)}',
+            'الاستقطاع ${CurrencyFormatter.format(commission)} ($rule)',
             style: GoogleFonts.cairo(
               fontSize: 10.5,
               fontWeight: FontWeight.w700,

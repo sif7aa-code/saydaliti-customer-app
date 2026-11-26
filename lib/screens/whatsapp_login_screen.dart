@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -13,6 +12,7 @@ import '../services/supabase_service.dart';
 import '../services/system_notification.dart';
 import '../core/utils/account_name.dart';
 import '../core/utils/auth_fields.dart';
+import '../widgets/auth_inputs.dart';
 import '../widgets/auth_shell.dart';
 import '../widgets/whatsapp_code_field.dart';
 
@@ -413,105 +413,22 @@ class _WhatsappLoginScreenState extends State<WhatsappLoginScreen> {
     return AuthScreenScaffold(
       card: Form(
         key: _formKey,
-        child: Container(
-          margin: const EdgeInsets.only(top: 10),
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: AppColors.divider),
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.primary.withValues(alpha: 0.10),
-                blurRadius: 22,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
+        child: AuthCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
-                'الدخول بكود واتساب',
-                textAlign: TextAlign.center,
-                style: GoogleFonts.cairo(
-                  color: AppColors.textPrimary,
-                  fontSize: 24,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'نرسل كود على واتساب — انسخه والصقه هنا',
-                textAlign: TextAlign.center,
-                style: GoogleFonts.cairo(
-                  color: AppColors.textSecondary,
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 10),
-              // ★ فاصل أيقونة نبضة القلب تحت العنوان — كما في التصميم.
-              Row(
-                children: [
-                  const Expanded(child: Divider(color: AppColors.divider)),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    child: Icon(
-                      Icons.monitor_heart_rounded,
-                      size: 18,
-                      color: AppColors.primary,
-                    ),
-                  ),
-                  const Expanded(child: Divider(color: AppColors.divider)),
-                ],
+              const AuthCardHeading(
+                icon: Icons.chat_rounded,
+                title: 'الدخول بكود واتساب',
+                subtitle: 'نرسل كود على واتساب — انسخه والصقه هنا',
               ),
               const SizedBox(height: 14),
-              // ★ الحقول بتسمية فوقها ورماديّ مملوء داخل حدٍّ دائري —
-              //   نفس حقول شاشة الدخول بكلمة المرور.
-              Text(
-                'رقم الهاتف',
-                style: GoogleFonts.cairo(
-                  color: AppColors.textPrimary,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 5),
-              TextFormField(
+              const AuthFieldLabel('رقم الهاتف'),
+              AuthPhoneField(
                 controller: _phoneController,
-                textDirection: TextDirection.ltr,
-                keyboardType: TextInputType.phone,
-                maxLength: 11,
                 enabled: !busy,
-                onChanged: (_) => setState(() {}),
-                inputFormatters: [
-                  FilteringTextInputFormatter.digitsOnly,
-                  LengthLimitingTextInputFormatter(11),
-                ],
-                decoration: InputDecoration(
-                  hintText: '07XXXXXXXXX',
-                  counterText: '',
-                  filled: true,
-                  fillColor: AppColors.background,
-                  prefixIcon: const Icon(
-                    Icons.phone_rounded,
-                    color: AppColors.primary,
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: const BorderSide(color: AppColors.divider),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: const BorderSide(
-                      color: AppColors.primary,
-                      width: 1.6,
-                    ),
-                  ),
-                ),
-                validator: (v) => AuthFields.phoneError(v ?? ''),
+                hint: '07XXXXXXXXX',
+                onChanged: () => setState(() {}),
               ),
               const SizedBox(height: 14),
               WhatsappCodeField(
@@ -520,47 +437,17 @@ class _WhatsappLoginScreenState extends State<WhatsappLoginScreen> {
                 enabled: !_isLoggingIn,
               ),
               const SizedBox(height: 16),
-              // ★ زر الدخول كرويّ تماماً — كما في التصميم.
-              SizedBox(
-                height: 50,
-                child: FilledButton(
-                  onPressed: busy ? null : _login,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    shape: const StadiumBorder(),
-                  ),
-                  child: _isLoggingIn
-                      ? const SizedBox(
-                          width: 22,
-                          height: 22,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.5,
-                            color: Colors.white,
-                          ),
-                        )
-                      : Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              'دخول بكود واتساب',
-                              style: GoogleFonts.cairo(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            const Icon(Icons.east_rounded, size: 20),
-                          ],
-                        ),
-                ),
+              AuthSubmitButton(
+                label: 'دخول بكود واتساب',
+                icon: Icons.login_rounded,
+                busy: _isLoggingIn,
+                onPressed: busy ? null : _login,
               ),
             ],
           ),
         ),
       ),
       footer: AuthFooterWave(
-        icon: Icons.lock_rounded,
         label: 'الدخول بكلمة المرور',
         onPressed: () => Navigator.of(context).pop(),
       ),

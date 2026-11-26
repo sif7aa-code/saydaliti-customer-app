@@ -12,7 +12,6 @@ import '../services/doctor_service.dart';
 import '../services/location_service.dart';
 import '../widgets/doctor_appointment_details.dart';
 import '../widgets/location_map_picker.dart';
-import 'my_doctor_appointments_screen.dart';
 
 /// ★ حجز موعد دكتور/ة — الخدمة الثانية في تبويب **خدمات**.
 ///
@@ -292,12 +291,17 @@ class _DoctorAppointmentScreenState extends State<DoctorAppointmentScreen> {
       });
       return;
     }
-    // الطبيب أطفأ الاستقبال: لا إرسال، والرسالة تسمّي السبب.
+    // ★ الحالة تُقرأ من القاعدة قبل الرفض: قد يكون الطبيب أعاد التشغيل
+    //   بعد آخر قراءة، فلا يحجب الزبونَ كاشٌ قديم. التحكم في الزر
+    //   للطبيب والسكرتير (الممرض) وحدهما، لا لاختيار الزبون.
     if (_bookingClosed) {
-      setState(() =>
-          _error = 'الطبيب أطفأ استقبال الحجوزات حالياً — جرّب لاحقاً');
-      _loadAvailability();
-      return;
+      await _loadAvailability();
+      if (!mounted) return;
+      if (_bookingClosed) {
+        setState(() =>
+            _error = 'الطبيب أطفأ استقبال الحجوزات حالياً — جرّب لاحقاً');
+        return;
+      }
     }
     if (!(_form.currentState?.validate() ?? false)) return;
     // ★ الموعد بطائق لا `TextFormField`، فلا يدخل في `validate()`:
@@ -327,16 +331,28 @@ class _DoctorAppointmentScreenState extends State<DoctorAppointmentScreen> {
     });
 
     final loc = LocationService.instance;
-    final res = await DoctorService.instance.book(
-      specialty: _specialty,
-      doctorName: _doctorCtrl.text,
-      patientName: _patientCtrl.text,
-      contactPhone: _phoneCtrl.text,
-      appointmentAt: when,
-      address: loc.currentAddress,
-      latitude: loc.currentLat,
-      longitude: loc.currentLng,
-    );
+    DoctorBookingResult res;
+    try {
+      res = await DoctorService.instance.book(
+        specialty: _specialty,
+        doctorName: _doctorCtrl.text,
+        patientName: _patientCtrl.text,
+        contactPhone: _phoneCtrl.text,
+        appointmentAt: when,
+        address: loc.currentAddress,
+        latitude: loc.currentLat,
+        longitude: loc.currentLng,
+      );
+    } catch (_) {
+      // ★ الزر لا يبقى مقفولاً مهما حدث أثناء الإرسال.
+      if (mounted) {
+        setState(() {
+          _booking = false;
+          _error = 'تعذّر إرسال الحجز — تحقق من الإنترنت ثم أعد المحاولة';
+        });
+      }
+      return;
+    }
 
     if (!mounted) return;
     setState(() => _booking = false);
@@ -441,11 +457,11 @@ class _DoctorAppointmentScreenState extends State<DoctorAppointmentScreen> {
             Text(
               pendingApproval
                   // ★ الحجز عند العيادة: لا رقم قبل الموافقة، والكشفية
-                  //   لا تُقيَّد إلا بها وبعد الاستقطاع الثابت.
+                  //   لا تُقيَّد إلا بعد تأكيد انتهاء المعاينة.
                   ? 'حجزك الآن عند العيادة بانتظار الموافقة. عند موافقة '
                         'السكرتير يكتب رقم حجزك ويصلك إشعار به، وإن رُفض '
                         'يُبلَّغك التطبيق. كشفية الحجز $fee تُقيَّد في '
-                        'محفظة العيادة عند الموافقة بعد خصم ثابت 500 دينار.'
+                        'محفظة العيادة بعد تأكيد انتهاء المعاينة.'
                   : 'حجزك عند العيادة برقمه الخاص. كشفية الحجز $fee.',
               textAlign: TextAlign.center,
               style: GoogleFonts.cairo(
@@ -518,17 +534,8 @@ class _DoctorAppointmentScreenState extends State<DoctorAppointmentScreen> {
         centerTitle: true,
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => const MyDoctorAppointmentsScreen(),
-              ),
-            ),
-            tooltip: 'حجوزاتي',
-            icon: const Icon(Icons.event_note_outlined),
-          ),
-        ],
+        // ★ زرّ «حجوزاتي» انتقل إلى الشريط السفلي (تبويب للزبون، 2026-11-24)
+        //   فلم يبقَ هنا زرّ مكرّر.
       ),
       body: Form(
         key: _form,
@@ -709,9 +716,9 @@ class _DoctorAppointmentScreenState extends State<DoctorAppointmentScreen> {
             Text(
               'ملاحظة: يُعرض الحجز على عيادة الطبيب للموافقة أولاً. عند '
               'الموافقة يكتب السكرتير رقم حجزك ويصلك إشعار به. كشفية الحجز '
-              '15,000 د.ع تُقيَّد في محفظة العيادة عند الموافقة بعد خصم '
-              'ثابت 500 دينار، ولا يدخل الحجز في طلبات الصيدليات ولا في '
-              'الخصومات.',
+              '15,000 د.ع تُقيَّد في محفظة العيادة بعد تأكيد انتهاء '
+              'المعاينة، ولا يدخل الحجز في طلبات الصيدليات ولا '
+              'في الخصومات.',
               textAlign: TextAlign.center,
               style: GoogleFonts.cairo(
                 fontSize: 11,
@@ -789,8 +796,8 @@ class _IntroCard extends StatelessWidget {
             'اكتب اسم المريض ورقم هاتفه الشغال والموعد والموقع — العيادة '
             'تتصل بالمريض على هذا الرقم لا على رقم الطبيب. يوافق '
             'سكرتير العيادة على الحجز ويكتب رقمه الخاص فيصل إشعارك به — '
-            'وكشفية الحجز 15,000 د.ع تُقيَّد في محفظة العيادة عند الموافقة '
-            'بعد خصم ثابت 500 دينار.',
+            'وكشفية الحجز 15,000 د.ع تُقيَّد في محفظة العيادة بعد تأكيد '
+            'انتهاء المعاينة.',
             style: GoogleFonts.cairo(
               fontSize: 12.5,
               height: 1.6,

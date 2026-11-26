@@ -28,9 +28,11 @@ private data class ChannelSpec(
 /**
  * قنوات إشعارات سنتر الشطرة.
  *
- * لكل نوع إشعار قناة مستقلة لأن Android لا يسمح بتغيير صوت القناة بعد
- * إنشائها (القناة إعدادات ثابتة يحددها المستخدم). لذلك لكل قناة معرّف
- * مستقر + نسخة (v2) حتى لو غيّرنا النغمة لاحقاً.
+ * قناة مستقلة لكل نوع إشعار لأن Android لا يسمح بتغيير صوت القناة
+ * بعد إنشائها (القناة إعدادات ثابتة يحددها المستخدم)، وكل القنوات
+ * هنا تشير إلى ملفات res/raw الثمانية التي تحمل اليوم **جرساً واحداً**
+ * (طلب 2026-11-24): تغيير الجرس يتم بتبديل محتوى الملفات بنفس الأسماء
+ * (tools/make_notification_sounds.dart) فلا حاجة لإصدار قنوات جديد.
  *
  * القناة = ما يجعل الصوت يعمل خارج التطبيق (الخلفية / مقفل / مُقتل).
  * المعرّفات مطابقة تماماً لما يرسله tools/push_worker.js وما يقرأه
@@ -91,6 +93,8 @@ object NotifyChannels {
         val attrs = attributes()
         val res = context.resources
         val pkg = context.packageName
+        // جرس واحد لكل القنوات: نفس ملفات res/raw (كلها تحمل الجرس الآن).
+        val bellUri = Uri.parse("android.resource://$pkg/raw/new_order")
 
         for (spec in specs) {
             val soundId = res.getIdentifier(spec.raw, "raw", pkg)
@@ -126,7 +130,7 @@ object NotifyChannels {
                 description = "القناة الافتراضية: إشعارات فورية حتى والتطبيق مغلق"
                 enableVibration(true)
                 vibrationPattern = longArrayOf(0, 250, 150, 250)
-                setSound(Settings.System.DEFAULT_NOTIFICATION_URI, attrs)
+                setSound(bellUri, attrs)
                 enableLights(true)
                 setShowBadge(true)
                 lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
@@ -142,7 +146,7 @@ object NotifyChannels {
                 description = "إشعارات الطلبات والتوصيل"
                 enableVibration(true)
                 vibrationPattern = longArrayOf(0, 250, 150, 250)
-                setSound(Settings.System.DEFAULT_NOTIFICATION_URI, attrs)
+                setSound(bellUri, attrs)
                 enableLights(true)
                 setShowBadge(true)
                 lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
@@ -168,6 +172,7 @@ class MainActivity : FlutterActivity() {
         if (!BuildConfig.IS_ADMIN_APP) {
             getSystemService(NotificationManager::class.java)?.let {
                 NotifyChannels.createAll(applicationContext, it)
+                NotificationSounds.ensure(applicationContext)
             }
         }
         captureNotificationIntent(intent)
@@ -310,6 +315,47 @@ class MainActivity : FlutterActivity() {
                         }
                     }
                     "channelSounds" -> result.success(readChannelSounds())
+                    // ══ نغمة الإشعارات من أصوات الهاتف ══
+                    // المستخدم يختار من قائمة أصوات جهازه، والحفظ محلي
+                    // (SharedPreferences) — قناة جديدة بصوت الاختيار،
+                    // وتُحذف قناة النغمة السابقة كي لا يرنّ القديم.
+                    "listSounds" ->
+                        result.success(NotificationSounds.list(applicationContext))
+                    "previewSound" -> {
+                        val uri = call.argument<String>("uri")
+                        if (uri == null) {
+                            result.error("bad_args", "uri مطلوب", null)
+                        } else {
+                            NotificationSounds.preview(applicationContext, uri)
+                            result.success(true)
+                        }
+                    }
+                    "stopSoundPreview" -> {
+                        NotificationSounds.stopPreview()
+                        result.success(true)
+                    }
+                    "setCustomSound" -> {
+                        val uri = call.argument<String>("uri")
+                        val title = call.argument<String>("title") ?: ""
+                        if (uri == null) {
+                            result.error("bad_args", "uri مطلوب", null)
+                        } else {
+                            result.success(
+                                NotificationSounds.apply(applicationContext, uri, title),
+                            )
+                        }
+                    }
+                    "clearCustomSound" -> {
+                        NotificationSounds.clear(applicationContext)
+                        result.success(true)
+                    }
+                    "customSound" -> result.success(
+                        mapOf(
+                            "uri" to NotificationSounds.uri(applicationContext),
+                            "title" to NotificationSounds.title(applicationContext),
+                            "channelId" to NotificationSounds.channelId(applicationContext),
+                        ),
+                    )
                     // ★ حالة الأذونات — أساس «لماذا لا يصل الشعار؟»
                     //   طلب POST_NOTIFICATIONS يُرفض مرة فيبقى الإذن
                     //   مسحوباً بصمت، وFCM يُسقط الرسالة رغم نجاح الإرسال.

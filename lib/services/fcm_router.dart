@@ -23,6 +23,8 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app.dart' show appNavigatorKey;
+import '../screens/chat_screen.dart' show openChatFromLink;
+import '../screens/my_doctor_appointments_screen.dart';
 import '../screens/order_tracking_screen.dart';
 import '../screens/secretary_appointments_screen.dart';
 import 'auth_service.dart';
@@ -275,6 +277,27 @@ class FcmRouter with WidgetsBindingObserver {
           ),
         );
       } catch (_) {}
+      return;
+    }
+
+    // ★ إشعار حجز الزبون (`bookings`): إلى «حجوزاتي» — بطاقة الدور
+    //   تختفي بعد الانتهاء ويبقى السجل هنا.
+    if (tap.link == 'bookings') {
+      try {
+        appNavigatorKey.currentState?.push(
+          MaterialPageRoute<void>(
+            builder: (_) => const MyDoctorAppointmentsScreen(),
+          ),
+        );
+      } catch (_) {}
+      return;
+    }
+
+    // ★ إشعار دردشة (`chat:<doctorId>:<patientPhone>`): إلى شاشة المحادثة
+    //   — للعيادة مع المراجع، وللمراجع مع العيادة. قبل فحص المندوب لأن
+    //   الحساب قد يحمل صفة مندوب أيضاً والرابط هنا صريح.
+    if (tap.link.startsWith('chat:')) {
+      openChatFromLink(tap.link);
       return;
     }
 

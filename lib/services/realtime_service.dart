@@ -18,6 +18,11 @@ class RtEvent {
   static const waState = 'wa.state';
   static const qr = 'wa.qr';
 
+  /// ★ صفّ إشعار جديد **لصاحب الرقم وحده** — يدفعه السيرفر لحظة
+  ///   اكتشافه (مضخته كل ثانية)، فيسحب التطبيق إشعاره فوراً بدل فحص
+  ///   دوري كل ثانية. هذا ما يجعل الإشعار لحظياً وخفيفاً معاً.
+  static const notifyNew = 'notify.new';
+
   static const all = <String>[
     orderNew,
     orderStatus,
@@ -28,6 +33,7 @@ class RtEvent {
     brandChanged,
     waState,
     qr,
+    notifyNew,
   ];
 }
 

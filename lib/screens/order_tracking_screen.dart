@@ -1016,7 +1016,7 @@ class _TrackingBody extends StatelessWidget {
         ),
         const SizedBox(height: 20),
 
-        // خدمة العملاء — إنستغرام
+        // خدمة العملاء — واتساب
         OutlinedButton.icon(
           onPressed: onSupport,
           style: OutlinedButton.styleFrom(
@@ -1029,7 +1029,7 @@ class _TrackingBody extends StatelessWidget {
           ),
           icon: const Icon(Icons.chat_bubble_rounded, size: 18),
           label: Text(
-            'خدمة العملاء (إنستغرام)',
+            'خدمة العملاء (واتساب)',
             style: GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.w900),
           ),
         ),

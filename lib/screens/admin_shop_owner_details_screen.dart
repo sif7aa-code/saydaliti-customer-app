@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../core/theme/app_colors.dart';
 import '../core/utils/currency_formatter.dart';
+import '../core/utils/deduction_label.dart';
 import '../services/supabase_service.dart';
 import '../widgets/app_image.dart';
 import '../widgets/app_refresh_indicator.dart';
@@ -31,7 +32,7 @@ class _AdminShopOwnerDetailsScreenState
   List<Map<String, dynamic>> _products = const [];
   bool _loading = true;
 
-  /// رصيد الصيدلية من دفتر الأرباح (عمولة المنصة تُقرأ من الدفتر نفسها).
+  /// رصيد الصيدلية من دفتر الأرباح (الاستقطاع يُقرأ من القاعدة نفسها).
   Map<String, dynamic>? _balance;
   bool _resetting = false;
 
@@ -459,8 +460,8 @@ class _StatBox extends StatelessWidget {
   }
 }
 
-/// بطاقة رصيد الصيدلية: السعر الكلي، استقطاع المنصة 15%، الصافي،
-/// والمدفوع. ومعها زر التصفير (الأدمن فقط بكلمة مرور).
+/// بطاقة رصيد الصيدلية: السعر الكلي، الاستقطاع (ثابت أو نسبة — يحدده
+/// الأدمن)، الصافي، والمدفوع. ومعها زر التصفير (الأدمن فقط بكلمة مرور).
 class _BalanceCard extends StatelessWidget {
   const _BalanceCard({
     required this.balance,
@@ -491,10 +492,14 @@ class _BalanceCard extends StatelessWidget {
     final earned = n('earned');
     final paid = n('paid');
     final pending = n('pending');
-    // ★★ النسبة تُشتقّ من دفتر الأرباح نفسه (commission ÷ gross) لا من
-    //   ثابت في الواجهة: فلا يمكن أن يظهر «عمولة 15%» بينما الحساب
-    //   فعلياً 10%. الرجوع للافتراضي فقط إذا كان الرصيد صفرياً.
-    final rate = SupabaseService.commissionRateOf(d);
+    // ★★ الاستقطاع يُقرأ من القاعدة نفسها (`deduction_settings` عبر
+    //   `get_shop_balance`) لا من ثابت في الواجهة: لا يظهر «10%» بينما
+    //   الحساب ثابت 500، ولا رقم يخالف ما يراه صاحب الصيدلية.
+    final rule = deductionText(
+      deductionMethodOf(d['deduction_method']),
+      n('deduction_value'),
+      unit: 'طلب',
+    );
 
     return Container(
       decoration: BoxDecoration(
@@ -529,7 +534,7 @@ class _BalanceCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
-                  'عمولة المنصة $rate%',
+                  'استقطاع $rule',
                   style: GoogleFonts.cairo(
                     color: Colors.white,
                     fontSize: 10.5,
@@ -572,7 +577,7 @@ class _BalanceCard extends StatelessWidget {
           const SizedBox(height: 7),
           _BalanceRow(
             icon: Icons.percent_rounded,
-            label: 'استقطاع المنصة $rate%',
+            label: 'الاستقطاع ($rule)',
             value: '- ${CurrencyFormatter.format(commission)}',
           ),
           const SizedBox(height: 7),

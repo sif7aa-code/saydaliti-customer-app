@@ -58,6 +58,7 @@ class AdminImageUploader extends StatefulWidget {
     this.handleRemovalExternally = false,
     this.onRemovedExisting,
     this.onBusyChanged,
+    this.uploadedLabel = 'مرفوعة · ظاهرة للجميع',
   });
 
   /// مجلد الرفع في السلة (فمثلاً `products` أو `shops`).
@@ -104,6 +105,10 @@ class AdminImageUploader extends StatefulWidget {
   ///   جارياً. بدونه: يُغلق النموذج أثناء الرفع فيُحفظ الصف بلا صورة
   ///   (وقع فعلاً: طبيب أضافه الأدمن بلا صورته).
   final ValueChanged<bool>? onBusyChanged;
+
+  /// نص شارة «تم الرفع» أسفل الصورة. حقل الإثبات (هوية/شهادة) يمرّر
+  /// «مرفوعة» وحدها بلا «ظاهرة للجميع».
+  final String uploadedLabel;
 
   @override
   State<AdminImageUploader> createState() => _AdminImageUploaderState();
@@ -381,7 +386,7 @@ class _AdminImageUploaderState extends State<AdminImageUploader> {
                             Text(
                               _url == null
                                   ? 'لم تُرفع للسيرفر'
-                                  : 'مرفوعة · ظاهرة للجميع',
+                                  : widget.uploadedLabel,
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 10,

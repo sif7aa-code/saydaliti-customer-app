@@ -12,9 +12,11 @@ import 'admin_devices_screen.dart';
 import 'admin_doctor_categories_screen.dart';
 import 'admin_doctors_screen.dart';
 import 'admin_doctor_wallets_screen.dart';
+import 'admin_deductions_screen.dart';
 import 'admin_driver_wallets_screen.dart';
 import 'admin_orders_screen.dart';
 import 'admin_products_screen.dart';
+import 'admin_provider_applications_screen.dart';
 import 'admin_shop_owners_screen.dart';
 import 'admin_users_screen.dart';
 import 'secretary_appointments_screen.dart';
@@ -376,7 +378,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               _buildCard(
                 context,
                 title: 'محفظة اطباء ذي قار',
-                subtitle: 'رصيد صيدليتك وسجل الطلبات المسلَّمة بعد عمولة المنصة',
+                subtitle: 'رصيد صيدليتك وسجل الطلبات المسلَّمة بعد الاستقطاع',
                 icon: Icons.account_balance_wallet_rounded,
                 onTap: () {
                   Navigator.of(context).push(
@@ -474,7 +476,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               context,
               title: 'محافظ الصيدليات وأصحابها',
               subtitle:
-                  'مبلغ كل صيدلية بعد استقطاع 10% (السعر الكلي والاستقطاع) '
+                  'مبلغ كل صيدلية بعد الاستقطاع (السعر الكلي والاستقطاع) '
                   'مع تصفير الرصيد',
               icon: Icons.store_mall_directory_rounded,
               onTap: () {
@@ -515,6 +517,24 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               },
             ),
             const SizedBox(height: 12),
+            // ★ طلبات الانضمام: حسابات الطبيب/الممرض/الصيدلاني من التسجيل
+            //   لا تظهر رسمياً إلا بعد اعتمادها هنا.
+            _buildCard(
+              context,
+              title: 'طلبات الانضمام',
+              subtitle:
+                  'طلبات الأطباء والممرضين والصيدلانيين: اعتماد ينشر الحساب '
+                  'ويضبط الكشفية أو النسبة، أو رفض بسبب',
+              icon: Icons.how_to_reg_rounded,
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const AdminProviderApplicationsScreen(),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 12),
             // ★ أقسام الدليل: الأدمن يضيف زرّاً جديداً مثل «الأطباء
             //   والمجمعات والمختبرات» فيظهر أعلى الرئيسية فوراً.
             _buildCard(
@@ -550,20 +570,37 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               },
             ),
             const SizedBox(height: 12),
-            // ★ محافظ الأطباء (11-19): صافي الكشفيات بعد استقطاع ثابت
-            //   500 دينار لكل حجز، والتصفير يدوي من هنا بكلمة مرور الأدمن —
-            //   لا يحذف قيداً.
+            // ★ محافظ الأطباء (11-19): صافي الكشفيات بعد الاستقطاع
+            //   الذي يحدده الأدمن لكل عيادة، والتصفير يدوي من هنا بكلمة
+            //   مرور الأدمن — لا يحذف قيداً.
             _buildCard(
               context,
               title: 'محافظ الأطباء',
               subtitle:
-                  'الكشفية 15,000 للحجز، استقطاع ثابت 500، الصافي، '
-                  'والتصفير اليدوي بكلمة مرور الأدمن',
+                  'الكشفية، الاستقطاع، الصافي، والتصفير اليدوي '
+                  'بكلمة مرور الأدمن',
               icon: Icons.account_balance_wallet_rounded,
               onTap: () {
                 Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (_) => const AdminDoctorWalletsScreen(),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+            // ★ الاستقطاعات: المكان الوحيد الذي يقرأ منه كل مسار مالي.
+            _buildCard(
+              context,
+              title: 'الاستقطاعات',
+              subtitle:
+                  'حدد لكل عيادة وصيدلية: مبلغ ثابت أو نسبة — '
+                  'يسري على كل حسابات التطبيق',
+              icon: Icons.percent_rounded,
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const AdminDeductionsScreen(),
                   ),
                 );
               },

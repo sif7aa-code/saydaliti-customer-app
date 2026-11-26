@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -67,37 +68,30 @@ class ContactTools {
     }
   }
 
-  /// المعرّف الرسمي لحساب خدمة العملاء على إنستغرام.
-  static const String supportInstagramUser = 'alshatra_center';
+  /// رقم خدمة العملاء الرسمي بصيغة دولية (بلا علامة +).
+  static const String supportWhatsappPhone = '9647830675033';
 
-  /// صفحة **خدمة العملاء** الرسمية على إنستغرام (رابط نظيف بلا وسوم تتبّع).
+  /// رابط خدمة العملاء الرسمي الذي يفتح واتساب على آيفون وأندرويد.
+  static const String supportWhatsapp = 'https://iwtsp.com/9647830675033';
+
+  /// رابط التطبيق المباشر: يفتح تطبيق واتساب الرسمي على محادثة الدعم.
+  static const String supportWhatsappApp =
+      'whatsapp://send?phone=$supportWhatsappPhone';
+
+  /// فتح خدمة العملاء **مباشرة في تطبيق واتساب الرسمي**.
   ///
-  /// ★ ثابت واحد في كل المشروع: أي زر «خدمة العملاء» يفتحه
-  ///   (كانت مجموعة واتساب، واستُبدلت بتاريخ 2026-10-29).
-  static const String supportInstagram =
-      'https://www.instagram.com/$supportInstagramUser/';
-
-  /// رابط التطبيق المباشر: يفتح تطبيق إنستغرام على صفحة الحساب مباشرة.
-  static const String supportInstagramApp =
-      'instagram://user?username=$supportInstagramUser';
-
-  /// فتح خدمة العملاء **مباشرة في تطبيق إنستغرام**.
-  ///
-  /// الترتيب مقصود: يُجرَّب رابط التطبيق أولاً — فمن يملك إنستغرام على
-  /// هاتفه يجد نفسه داخل التطبيق على صفحتنا بلا متصفح وبلا صفحة وسطاء.
-  /// إن لم يكن التطبيق منصَّباً ينتقل إلى الرابط الرسمي النظيف، وهو رابط
-  /// إنستغرام نفسه (يعرفه التطبيق مثبَّتاً ويفتحه) وينتهي في المتصفح
+  /// الترتيب مقصود: يُجرَّب رابط التطبيق أولاً — فمن يملك واتساب على
+  /// هاتفه يجد نفسه داخل المحادثة بلا متصفح ولا صفحة وسطاء، على
+  /// آيفون وأندرويد معاً. إن لم يكن التطبيق منصَّباً ينتقل إلى الرابط
+  /// الرسمي [supportWhatsapp]، وهو بدوره يفتح واتساب أو صفحته على الويب
   /// لغير المثبِّت — فلا رسالة خطأ تُسمَّع للزبون.
   static Future<void> openSupport(BuildContext context) async {
-    if (await _open(Uri.parse(supportInstagramApp))) return;
-    if (await _open(
-      Uri.parse(supportInstagram),
-      mode: LaunchMode.platformDefault,
-    )) {
-      return;
-    }
+    // ★ المتصفح (نسخة الويب) لا يعرف مخطط whatsapp:// — فُتحت نافذة
+    //   فارغة. هناك يُستعمل رابط iwtsp وحده، وهو يعرف إلى أين يوجّه.
+    if (!kIsWeb && await _open(Uri.parse(supportWhatsappApp))) return;
+    if (await _open(Uri.parse(supportWhatsapp))) return;
     if (!context.mounted) return;
-    _toast(context, 'تعذّر فتح صفحة خدمة العملاء — تأكد من الاتصال بالإنترنت');
+    _toast(context, 'تعذّر فتح واتساب — تأكد من تثبيت التطبيق والاتصال بالإنترنت');
   }
 
   static void _toast(BuildContext context, String msg) {

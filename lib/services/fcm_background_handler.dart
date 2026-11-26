@@ -27,6 +27,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'auth_service.dart';
+import 'device_sound.dart';
 import 'system_notification.dart';
 
 /// معالج الخلفية — نقطة الدخول التي تستدعيها FCM عند Killed State.
@@ -85,6 +86,10 @@ Future<void> showBackgroundNotification(
   String body,
 ) async {
   final plugin = FlutterLocalNotificationsPlugin();
+
+  // نغمة اختيار المستخدم على هذا الهاتف (قناة مخصّصة) — تُقرأ من
+  // القرص داخل عزل الخلفية قبل اختيار القناة.
+  await DeviceSound.load();
 
   // معرّف ثابت لكل رسالة ⇒ تحديث بدل تكرار.
   final rawId = message.messageId ?? '$title|$body';

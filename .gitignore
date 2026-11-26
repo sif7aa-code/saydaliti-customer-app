@@ -94,6 +94,8 @@ android/key.properties
 fcm-service-account.json
 fcm-diqarapp.json
 tools/service-account.json
+# خريطة قنوات الصوت: تحتوي توكنات أجهزة — لا تُرفع
+notify-server/sound-map.json
 *.mobileprovision
 *.p12
 *service-account*.json

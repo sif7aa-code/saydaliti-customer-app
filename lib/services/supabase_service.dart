@@ -934,6 +934,22 @@ class SupabaseService {
   }
 
   /// يبحث عن مستخدم مع تمييز «غير موجود» عن «خطأ».
+  /// صفّ الحساب كما هو في القاعدة (بلا تحويل المعطّل إلى «غير موجود»).
+  ///
+  /// ★ يحتاجه مسار إشارة البثّ: عند وصول `profile` نريد أن نعرف هل
+  ///   الحساب **معطّل** فعلاً (صفّ صريح `is_active = false`) فيخرج
+  ///   فوراً، بدل ترك `findUserChecked` تخفي السبب وتنتظر ثلاث دورات.
+  ///   `null` = جلسة/شبكة/لا صفّ — ولا يُستنتج منها شيء.
+  Future<Map<String, dynamic>?> readOwnUserRow(String phone) async {
+    if (phone.isEmpty) return null;
+    try {
+      ApiMetrics.hit('app_read_own_user');
+      return await rpcOne('app_read_own_user', {'p_phone': phone.trim()});
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<({UserLookupResult status, Map<String, dynamic>? user})>
   findUserChecked(String phone) async {
     if (phone.isEmpty) {
@@ -1906,6 +1922,166 @@ class SupabaseService {
     } catch (e) {
       lastAdminError = e.toString();
       return false;
+    }
+  }
+
+  /// ★ طلبات الانضمام (طبيب/ممرض/صيدلاني) — SQL_PROVIDER_APPLICATIONS.sql.
+  ///   الإرسال بعد إنشاء الحساب مباشرة: الرقم يُقرأ من توكن الجلسة في القاعدة.
+  Future<Map<String, dynamic>> providerApply({
+    required String category,
+    required String fullName,
+    String specialty = '',
+    String bio = '',
+    String workingHours = '',
+    String city = '',
+    String shopName = '',
+    required String photoUrl,
+    required String proofUrl,
+  }) async {
+    try {
+      final res = await _http
+          .post(
+            Uri.parse('${_url}rpc/provider_apply'),
+            headers: _headers,
+            body: jsonEncode({
+              'p_category': category,
+              'p_full_name': fullName.trim(),
+              'p_specialty': specialty.trim(),
+              'p_bio': bio.trim(),
+              'p_working_hours': workingHours.trim(),
+              'p_city': city.trim(),
+              'p_shop_name': shopName.trim(),
+              'p_photo_url': photoUrl,
+              'p_proof_url': proofUrl,
+            }),
+          )
+          .timeout(const Duration(seconds: 25));
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        final decoded = jsonDecode(res.body);
+        if (decoded is Map) return Map<String, dynamic>.from(decoded);
+        return const {'ok': false, 'error': 'رد غير متوقع من الخادم'};
+      }
+      if (res.statusCode == 404 && res.body.contains('PGRST202')) {
+        return const {
+          'ok': false,
+          'error': 'طلبات الانضمام غير مفعّلة — نفّذ SQL_PROVIDER_APPLICATIONS.sql',
+        };
+      }
+      return {
+        'ok': false,
+        'error': 'تعذّر إرسال الطلب (${res.statusCode})',
+      };
+    } catch (e) {
+      return {'ok': false, 'error': 'فشل الاتصال: $e'};
+    }
+  }
+
+  /// آخر طلب انضمام لصاحب الجلسة (أو null) — لبطاقة الحالة في «حسابي».
+  Future<Map<String, dynamic>?> myProviderApplication() async {
+    try {
+      final res = await _http
+          .post(
+            Uri.parse('${_url}rpc/provider_my_application'),
+            headers: _headers,
+            body: '{}',
+          )
+          .timeout(const Duration(seconds: 15));
+      if (res.statusCode < 200 || res.statusCode >= 300) return null;
+      final decoded = jsonDecode(res.body);
+      if (decoded is Map && decoded['application'] is Map) {
+        return Map<String, dynamic>.from(decoded['application'] as Map);
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// للأدمن: طلبات الانضمام بحسب الحالة (pending/approved/rejected/all).
+  Future<List<Map<String, dynamic>>> adminProviderApplications({
+    String status = 'pending',
+  }) async {
+    lastAdminError = '';
+    try {
+      final res = await _http
+          .post(
+            Uri.parse('${_url}rpc/admin_list_provider_applications'),
+            headers: _headers,
+            body: jsonEncode({'p_status': status}),
+          )
+          .timeout(const Duration(seconds: 20));
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        final decoded = jsonDecode(res.body);
+        if (decoded is Map && decoded['ok'] != true) {
+          lastAdminError = (decoded['error'] ?? 'تعذّر جلب الطلبات').toString();
+          return const [];
+        }
+        if (decoded is Map && decoded['applications'] is List) {
+          return List<Map<String, dynamic>>.from(
+            (decoded['applications'] as List)
+                .whereType<Map>()
+                .map((e) => Map<String, dynamic>.from(e)),
+          );
+        }
+        return const [];
+      }
+      if (res.statusCode == 404 && res.body.contains('PGRST202')) {
+        lastAdminError =
+            'طلبات الانضمام غير مفعّلة — نفّذ SQL_PROVIDER_APPLICATIONS.sql';
+        return const [];
+      }
+      lastAdminError = 'تعذّر جلب الطلبات (${res.statusCode})';
+      return const [];
+    } catch (e) {
+      lastAdminError = 'فشل الاتصال: $e';
+      return const [];
+    }
+  }
+
+  /// للأدمن: اعتماد (approve) أو رفض (reject) طلب انضمام.
+  ///
+  /// ★ عند الاعتماد يُنشئ الخادم الملف الرسمي نفسه (طبيب/سكرتير/صيدلية)
+  ///   ويضبط الاستقطاع إن أُرسل method+value — كل ذلك بمعاملة واحدة.
+  Future<Map<String, dynamic>> adminReviewProvider({
+    required String id,
+    required bool approve,
+    String reason = '',
+    String city = '',
+    String clinicId = '',
+    String deductionMethod = '',
+    double? deductionValue,
+  }) async {
+    lastAdminError = '';
+    try {
+      final res = await _http
+          .post(
+            Uri.parse('${_url}rpc/admin_review_provider_application'),
+            headers: _headers,
+            body: jsonEncode({
+              'p_id': id,
+              'p_decision': approve ? 'approve' : 'reject',
+              'p_reason': reason.trim(),
+              'p_city': city.trim(),
+              'p_clinic_id': clinicId.trim().isEmpty ? null : clinicId.trim(),
+              'p_deduction_method': deductionMethod,
+              'p_deduction_value': deductionValue,
+            }),
+          )
+          .timeout(const Duration(seconds: 30));
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        final decoded = jsonDecode(res.body);
+        if (decoded is Map) return Map<String, dynamic>.from(decoded);
+        return const {'ok': false, 'error': 'رد غير متوقع من الخادم'};
+      }
+      if (res.statusCode == 404 && res.body.contains('PGRST202')) {
+        return const {
+          'ok': false,
+          'error': 'طلبات الانضمام غير مفعّلة — نفّذ SQL_PROVIDER_APPLICATIONS.sql',
+        };
+      }
+      return {'ok': false, 'error': 'تعذّر اعتماد الطلب (${res.statusCode})'};
+    } catch (e) {
+      return {'ok': false, 'error': 'فشل الاتصال: $e'};
     }
   }
 
@@ -4783,36 +4959,16 @@ class SupabaseService {
     };
   }
 
-  /// ★★ عمولة المنصة الافتراضية (نسبة مئوية).
-  ///
-  /// هذا **احتياطي فقط** للنسب المحلية. الرقم المعروض فعلياً في الواجهة
-  /// يُشتقّ من دفتر `shop_earnings` (‏`commission ÷ gross`)، فالنتيجة
-  /// صحيحة ولو اختلفت النسبة في القاعدة. مرجع واحد للحقيقة = الدفتر.
-  static const int defaultCommissionRate = 10;
-
-  /// ★ النسبة الحقيقية للرصيد: تُحسب من الأرقام نفسها، لا من ثابت.
-  ///
-  /// كان يُقرأ `commission_rate` من ردّ القاعدة، وهو **ثابت مكتوب في
-  /// دالة** ⇒ عرض 15% بينما الحساب 10%. الآن إن كانت هناك مبالغ
-  /// نحصل على النسبة الفعلية منها، وإن كان الرصيد صفرياً نرجع للافتراضي.
-  static int commissionRateOf(Map<String, dynamic> d) {
-    final gross = (d['gross'] as num?)?.toDouble() ?? 0;
-    final commission = (d['commission'] as num?)?.toDouble() ?? 0;
-    if (gross > 0 && commission > 0) {
-      final derived = (commission / gross * 100).round();
-      // نتجاهل الشواذّ ( commission > gross أو نسبة خارج 0..100 ).
-      if (derived > 0 && derived <= 100) return derived;
-    }
-    return (d['commission_rate'] as num?)?.toInt() ?? defaultCommissionRate;
-  }
-
   /// صورة صفرية متوافقة مع مخرجات `get_shop_balance`.
   Map<String, dynamic> _emptyShopBalance() => {
     'balance': 0.0,
     'net': 0.0,
     'gross': 0.0,
     'commission': 0.0,
-    'commission_rate': defaultCommissionRate,
+    'commission_rate': 0,
+    'deduction_method': 'fixed',
+    'deduction_value': 0,
+    'deduction_is_default': true,
     'earned': 0.0,
     'paid': 0.0,
     'pending': 0.0,
@@ -4824,23 +4980,14 @@ class SupabaseService {
     'shop_name': '',
   };
 
-  /// رصيد صاحب الصيدلية: من دفتر الأرباح في القاعدة (عمولة 10%).
+  /// رصيد صاحب الصيدلية: من دفتر الأرباح في القاعدة — المصدر الوحيد.
   ///
-  /// كان يُحسب هنا في العميل مباشرة من `order_items` + `orders`، وفيه
-  /// ثلاث ثقوب حقيقية:
-  ///   1) `&limit=500` ⇒ أي صيدلية تجاوز ٥٠٠ بند يرى رصيداً ناقصاً بصمت.
-  ///   2) كان يعدّ **100%** من الإجمالي بلا استقطاع عمولة المنصة.
-  ///   3) لا يعرف الدفعات (تصفير الرصيد) فلا ينزل الرصيد أبداً.
-  /// الآن المصدر هو دالة القاعدة `get_shop_balance`: دفتر مُثبَّت
-  /// وذرّي (لا يُحتسب الطلب مرتين) وقابل للتدقيق.
-  ///
-  /// إن لم يكن SQL مُشغَّلاً بعد، نرجع لحساب محلي **بنسبة الخصم نفسها**
-  /// 100% كي لا تتناقض الأرقام بين الوضعين.
+  /// ★ لا احتياطي محلي بعد اليوم: الاستقطاع يحدده الأدمن لكل صيدلية على
+  ///   حدة (`deduction_settings`)، فالعميل لا يملك ما يحسب به رصيداً
+  ///   بنفسه. بلا اتصال نرجع أصفاراً بدل اختراع مبلغ يخالف المحفظة.
   Future<Map<String, dynamic>> fetchShopOwnerBalance(String ownerPhone) async {
     final m = await _shopBalanceFromServer(ownerPhone);
-    if (m != null) return m;
-    // احتياطي: قبل تشغيل ملف SQL الجديد.
-    return _localShopOwnerBalance(ownerPhone);
+    return m ?? _emptyShopBalance();
   }
 
   /// يقرأ `get_shop_balance` من الخادم **وحده** (بلا احتياطي محلي) — `null` عند
@@ -5012,7 +5159,7 @@ class SupabaseService {
     }
   }
 
-  /// محفظة التاجر: الرصيد الحقيقي بعد قِص عمولة المنصة (10%).
+  /// محفظة التاجر: الرصيد الحقيقي بعد قِص الاستقطاع الذي حدده الأدمن.
   ///
   /// ★ المصدر `my_shop_wallet` في القاعدة — دفتر واحد للتاجر
   ///   وللأدمن، فلا يختلف رقمان على الشاشة نفسها.
@@ -5048,82 +5195,6 @@ class SupabaseService {
     } catch (_) {
       lastShopWalletError = 'تعذّر الاتصال بالخادم';
       return null;
-    }
-  }
-
-  /// احتياطي محلي (يعمل فقط قبل تشغيل `SQL_SHOP_BALANCE_15.sql`).
-  ///
-  /// ★ يستقطع [defaultCommissionRate] للمنصة ليطابق القاعدة. وإن تجاوزت
-  ///   بنود الصيدلية الحدّ الأعلى للصفحة فالرقم قد يكون ناقصاً — ولهذا
-  ///   المصدر الحقيقي هو الدالة، وهذا مجرد تعافٍ مؤقت.
-  Future<Map<String, dynamic>> _localShopOwnerBalance(String ownerPhone) async {
-    final empty = _emptyShopBalance();
-    final shop = await fetchShopByOwnerPhone(ownerPhone);
-    final name = shop?['name']?.toString() ?? '';
-    if (name.isEmpty) return empty;
-    try {
-      final res = await _http.get(
-        Uri.parse(
-          '${_url}order_items?select=order_id,quantity,total&shop_name=eq.'
-          '${Uri.encodeComponent(name)}&limit=5000',
-        ),
-        headers: _headers,
-      );
-      if (res.statusCode < 200 || res.statusCode >= 300) return empty;
-      final rows = jsonDecode(res.body) as List;
-      if (rows.isEmpty) return empty;
-
-      var itemsSold = 0;
-      final byOrder = <String, double>{};
-      for (final r in rows) {
-        final m = Map<String, dynamic>.from(r as Map);
-        final oid = m['order_id']?.toString() ?? '';
-        if (oid.isEmpty) continue;
-        itemsSold += (m['quantity'] as num?)?.toInt() ?? 0;
-        byOrder[oid] =
-            (byOrder[oid] ?? 0) + ((m['total'] as num?)?.toDouble() ?? 0);
-      }
-      if (byOrder.isEmpty) return empty;
-
-      final ids = byOrder.keys.join(',');
-      final orders = await _fetchOrders('id=in.($ids)&limit=500');
-      var gross = 0.0, pending = 0.0;
-      var delivered = 0, rejected = 0;
-      for (final o in orders) {
-        final oid = o['id']?.toString() ?? '';
-        final amount = byOrder[oid] ?? 0;
-        final s = o['status']?.toString() ?? '';
-        if (s == 'delivered') {
-          gross += amount;
-          delivered++;
-        } else if (s == 'rejected' || s == 'cancelled') {
-          rejected++;
-        } else {
-          pending += amount;
-        }
-      }
-      // ★ 90% لصاحب الصيدلية بعد استقطاع عمولة المنصة 10%.
-      final rate = SupabaseService.defaultCommissionRate;
-      final commission = gross * rate / 100;
-      final net = gross - commission;
-      return {
-        'balance': net,
-        'net': net,
-        'gross': gross,
-        'commission': commission,
-        'commission_rate': rate,
-        'earned': net,
-        'paid': 0.0,
-        'pending': pending,
-        'items_sold': itemsSold,
-        'orders_count': byOrder.length,
-        'delivered_orders': delivered,
-        'settled_orders': delivered,
-        'rejected_orders': rejected,
-        'shop_name': name,
-      };
-    } catch (_) {
-      return empty;
     }
   }
 
@@ -6655,7 +6726,7 @@ class SupabaseService {
         'doctors': (map['doctors'] is num ? (map['doctors'] as num) : 0)
             .toInt(),
         'commission_percent':
-            // ★ العيادات بلا نسبة: الاستقطاع ثابت 500 لكل حجز.
+            // ★ حقل قديم للنسبة؛ الاستقطاع الفعلي في method/value.
             (map['commission_percent'] is num
                     ? (map['commission_percent'] as num)
                     : 0)
@@ -6729,6 +6800,96 @@ class SupabaseService {
           .map((e) => Map<String, dynamic>.from(e))
           .toList();
     } catch (_) {
+      return null;
+    }
+  }
+
+  // ==================================================================
+  //  الاستقطاعات — الأدمن وحده (SQL_ADMIN_DEDUCTIONS.sql)
+  // ==================================================================
+
+  /// سبب فشل آخر نداء استقطاعات. `null` = لا فشل.
+  String? lastDeductionError;
+
+  /// كل العيادات وكل الصيدليات باستقطاعها الحالي.
+  /// `null` عند الفشل مع السبب في [lastDeductionError].
+  Future<Map<String, dynamic>?> adminListDeductions() async {
+    lastDeductionError = null;
+    try {
+      final res = await _http
+          .post(
+            Uri.parse('${_url}rpc/admin_list_deductions'),
+            headers: _headers,
+            body: '{}',
+          )
+          .timeout(const Duration(seconds: 15));
+      if (res.statusCode == 404 || res.body.contains('PGRST202')) {
+        lastDeductionError =
+            'غير مثبَّت — شغّل SQL_ADMIN_DEDUCTIONS.sql';
+        return null;
+      }
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        lastDeductionError =
+            'تعذّر الجلب (${res.statusCode})';
+        return null;
+      }
+      final decoded = jsonDecode(res.body);
+      if (decoded is! Map) {
+        lastDeductionError = 'رد غير متوقع من الخادم';
+        return null;
+      }
+      final map = Map<String, dynamic>.from(decoded);
+      if (map['ok'] != true) {
+        lastDeductionError = '${map['error'] ?? 'تعذّر الجلب'}';
+        return null;
+      }
+      return map;
+    } catch (_) {
+      lastDeductionError = 'تعذّر الاتصال بالخادم';
+      return null;
+    }
+  }
+
+  /// ضبط استقطاع جهة واحدة. [method]: fixed | percent | default.
+  /// `null` عند الفشل مع السبب في [lastDeductionError].
+  Future<Map<String, dynamic>?> adminSetDeduction({
+    required String party,
+    required String refId,
+    required String method,
+    num? value,
+  }) async {
+    lastDeductionError = null;
+    if (party.isEmpty || refId.isEmpty || method.isEmpty) return null;
+    try {
+      final res = await _http
+          .post(
+            Uri.parse('${_url}rpc/admin_set_deduction'),
+            headers: _headers,
+            body: jsonEncode({
+              'p_party': party,
+              'p_ref_id': refId,
+              'p_method': method,
+              if (value != null) 'p_value': value,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        lastDeductionError = 'تعذّر الحفظ (${res.statusCode})';
+        return null;
+      }
+      final decoded = jsonDecode(res.body);
+      if (decoded is! Map) {
+        lastDeductionError = 'رد غير متوقع من الخادم';
+        return null;
+      }
+      final map = Map<String, dynamic>.from(decoded);
+      if (map['ok'] != true) {
+        lastDeductionError = '${map['error'] ?? 'تعذّر الحفظ'}';
+        return null;
+      }
+      return map;
+    } catch (_) {
+      lastDeductionError = 'تعذّر الاتصال بالخادم';
       return null;
     }
   }

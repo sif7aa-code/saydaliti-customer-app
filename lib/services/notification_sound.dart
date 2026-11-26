@@ -4,7 +4,14 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// نغمة التنبيه التي تُشغَّل مع كل إشعار.
+import 'device_sound.dart';
+
+/// مفاتيح أصوات الإشعارات.
+///
+/// ★ منذ 2026-11-24 كل الحالات (`new_order`، `accepted`، …) تشغّل
+///   **جرساً واحداً** — ملفات `assets/sounds/*.wav` كلها الجرس نفسه.
+///   المفاتيح باقية لأنها أسماء القنوات و`notifications.sound` في
+///   القاعدة، فلا تتغيّر بيانات قديمة.
 enum NotifySound {
   /// طلب جديد وصل المندوبين.
   newOrder('new_order'),
@@ -12,7 +19,7 @@ enum NotifySound {
   /// قبول الطلب.
   accepted('accepted'),
 
-  /// بدء التوصيل (رسالة ونغمة مختلفتان عن القبول).
+  /// بدء التوصيل.
   delivering('delivering'),
 
   /// رفض الطلب أو إلغاؤه.
@@ -22,7 +29,6 @@ enum NotifySound {
   replaced('replaced'),
 
   /// تغيّر سعر صنف داخل الطلب (يحدّده المندوب أو الأدمن).
-  /// نغمة هبوط نغمي — مختلفة عن `rejected` و`replaced`.
   priceChanged('price_changed'),
 
   /// توصيل الطلب.
@@ -40,10 +46,11 @@ enum NotifySound {
   String get asset => 'sounds/$key.wav';
 }
 
-/// تشغيل نغمة التنبيه الخاصة بكل نوع إشعار.
+/// تشغيل جرس الإشعار (صوت واحد لكل الحالات).
 ///
-/// كل نغمة محفوظة في `assets/sounds/` ومولّدة بسكربت
-/// `tools/make_notification_sounds.dart` (لا تحتاج ملفات صوت خارجية).
+/// الملفات الثمانية في `assets/sounds/` تحمل الجرس نفسه، مولّدة
+/// بسكربت `tools/make_notification_sounds.dart` (لا ملفات صوت خارجية).
+/// نُبقي مشغّلاً لكل حالة لأن نافذة منع التكرار لكل حالة على حدة.
 /// المشغّلات تُحمَّل مسبقاً ([preload]) ليعمل الصوت فوراً عند الإشعار.
 class NotificationSound {
   NotificationSound._();
@@ -129,6 +136,14 @@ class NotificationSound {
         return NotifySound.newOrder;
       case 'appointment_approved':
         return NotifySound.accepted;
+      // ★ الدور: اقتراب الدور والاستدعاء يقرعان نغمة القبول نفسها،
+      //   وانتهاء الزيارة نغمة التسليم — بلا مفاتيح صوت جديدة على
+      //   أجهزة الناس.
+      case 'queue_near':
+      case 'queue_called':
+        return NotifySound.accepted;
+      case 'appointment_done':
+        return NotifySound.delivered;
       case 'appointment_rejected':
         return NotifySound.rejected;
       case 'accepted':
@@ -215,6 +230,18 @@ class NotificationSound {
     if (!force && now - _lastAnyPlayedAtMs < _globalGapMs) return;
     _lastPlayedAtMs[sound] = now;
     _lastAnyPlayedAtMs = now;
+
+    // ★ اختار المستخدم نغمة من أصوات هاتفه ⇒ تُسمع هي داخل التطبيق
+    //   أيضاً؛ جرس التطبيق القديم لا يُشغَّل بجانبها ولا بدلها.
+    if (DeviceSound.hasCustom) {
+      if (!DeviceSound.isSilent) {
+        final uri = DeviceSound.selectedUri;
+        if (uri != null && uri.isNotEmpty) {
+          await DeviceSound.preview(uri);
+        }
+      }
+      return;
+    }
 
     try {
       final player = _playerFor(sound);

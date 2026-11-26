@@ -17,6 +17,7 @@ import '../widgets/app_image.dart';
 import '../widgets/app_refresh_indicator.dart';
 import '../widgets/image_viewer.dart';
 import '../widgets/working_hours_picker.dart';
+import 'chat_screen.dart';
 import 'doctor_appointment_screen.dart';
 import 'login_screen.dart';
 
@@ -346,12 +347,41 @@ class _DoctorProfileScreenState extends State<DoctorProfileScreen> {
     push();
   }
 
+  /// دردشة المراجع مع العيادة (الطبيب أو السكرتير). الزائر يمرّ بالدخول
+  /// أولاً؛ وحساب العيادة لا يبدأ محادثة من هنا (عنده تبويب الدردشة).
+  void _chat() {
+    void open() {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => ChatScreen(
+            doctorId: d.id,
+            title: d.name,
+            image: d.imagePath,
+          ),
+        ),
+      );
+    }
+
+    if (!AuthService.instance.isLoggedIn) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) =>
+              LoginScreen(showBackButton: true, onLoginSuccess: open),
+        ),
+      );
+      return;
+    }
+    open();
+  }
+
   @override
   Widget build(BuildContext context) {
     final stats = _stats;
     final isFav = stats?.isFavorite ?? false;
     final hasLink = d.facebookHref.isNotEmpty;
     final canEdit = _canEdit;
+    final hasChat =
+        !d.id.startsWith('ref-') && !AuthService.instance.isClinicAccount;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -417,6 +447,10 @@ class _DoctorProfileScreenState extends State<DoctorProfileScreen> {
                 ),
               ],
             ),
+            if (hasChat) ...[
+              const SizedBox(height: 10),
+              _ChatWithClinicButton(onTap: _chat),
+            ],
             if (d.displayAddress.isNotEmpty) ...[
               const SizedBox(height: 16),
               _InfoCard(
@@ -584,28 +618,16 @@ class _ProfileHead extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        // ★ غلاف احترافي (طلب 2026-11-20): ارتفاع ثابت 150 وزوايا 18،
-        //   والصورة تُقصّ لتملأ الإطار كاملاً (لا فراغ ولا تمدّد)،
-        //   ودائرة الصورة تتداخل مع أسفله. يعرضه الأدمن وحده.
+        // ★ غلاف احترافي: الصورة **كاملة الظهور أبداً** — لا قصّ.
+        //   الارتفاع يتبع نسبة الصورة نفسها بعرض كامل (بين حدّين)، فإن
+        //   خرجت عن الحدّ ظهرت كاملة داخل الإطار بخلفية هادئة بدل أن
+        //   تُقتطع. ودائرة الصورة تتداخل مع أسفله. يعرضه الأدمن وحده.
         if (cover != null)
           Stack(
             clipBehavior: Clip.none,
             alignment: Alignment.bottomCenter,
             children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(18),
-                child: SizedBox(
-                  width: double.infinity,
-                  height: 150,
-                  child: AppImage(
-                    cover,
-                    fit: BoxFit.cover,
-                    cacheWidth: 900,
-                    errorBuilder: (_, _, _) =>
-                        Container(color: AppColors.primaryLight),
-                  ),
-                ),
-              ),
+              _CoverBanner(cover: cover),
               Positioned(
                 bottom: -48,
                 child: _Avatar(doctor: doctor, onTap: onPhotoTap),
@@ -682,6 +704,100 @@ class _ProfileHead extends StatelessWidget {
           ),
         ],
       ],
+    );
+  }
+}
+
+/// غلاف البروفايل: الصورة كاملة الظهور أبداً — لا قصّ.
+///
+/// لماذا نقرأ أبعاد الصورة: الإطار الثابت (150) كان يقصّ الصور بـ
+/// [BoxFit.cover] فيضيع جزء منها. هنا الارتفاع = عرض الشاشة ÷ نسبة
+/// الصورة، فتملأ العرض كاملاً بلا قصّ ولا تمدّد. وإن خرجت النسبة عن
+/// الحدّين ظهرت كاملة داخل الإطار (contain) بخلفية هادئة بدل اقتطاعها.
+class _CoverBanner extends StatefulWidget {
+  const _CoverBanner({required this.cover});
+
+  final String cover;
+
+  @override
+  State<_CoverBanner> createState() => _CoverBannerState();
+}
+
+class _CoverBannerState extends State<_CoverBanner> {
+  static const double _minH = 110;
+  static const double _maxH = 260;
+
+  /// عرض ÷ ارتفاع الصورة — 0 حتى تُقرأ أبعادها.
+  double _ratio = 0;
+  ImageStream? _stream;
+  late final ImageStreamListener _listener = ImageStreamListener(
+    (info, _) {
+      final w = info.image.width;
+      final h = info.image.height;
+      if (w <= 0 || h <= 0) return;
+      final r = w / h;
+      if (!mounted || (r - _ratio).abs() < 0.001) return;
+      setState(() => _ratio = r);
+    },
+    onError: (_, _) {},
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _listen();
+  }
+
+  void _listen() {
+    if (widget.cover.isEmpty) return;
+    // نفس المزوّد المستعمل في العرض ⇒ الأبعاد من الكاش نفسه بلا تنزيل ثانٍ.
+    final ImageProvider<Object> provider = widget.cover.startsWith('assets/')
+        ? AssetImage(widget.cover)
+        : AppImage.providerFor(widget.cover, 800);
+    _stream = provider.resolve(ImageConfiguration.empty);
+    _stream!.addListener(_listener);
+  }
+
+  @override
+  void didUpdateWidget(covariant _CoverBanner oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.cover != widget.cover) {
+      _stream?.removeListener(_listener);
+      _stream = null;
+      _ratio = 0;
+      _listen();
+    }
+  }
+
+  @override
+  void dispose() {
+    _stream?.removeListener(_listener);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final w = constraints.maxWidth;
+        final natural = _ratio > 0 ? w / _ratio : 150.0;
+        final h = natural.clamp(_minH, _maxH);
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: Container(
+            width: w,
+            height: h,
+            color: AppColors.primaryLight,
+            child: AppImage(
+              widget.cover,
+              fit: BoxFit.contain,
+              cacheWidth: 900,
+              errorBuilder: (_, _, _) =>
+                  Container(color: AppColors.primaryLight),
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -985,6 +1101,55 @@ class _LinkButton extends StatelessWidget {
   }
 }
 
+/// زر «الدردشة مع العيادة»: محادثة داخل التطبيق مع الطبيب/السكرتير
+/// (تختلف عن زر واتساب الذي يفتح واتساب الخارجي).
+class _ChatWithClinicButton extends StatelessWidget {
+  const _ChatWithClinicButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 50,
+      width: double.infinity,
+      child: Material(
+        color: AppColors.primaryLight,
+        borderRadius: BorderRadius.circular(11),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(11),
+          onTap: onTap,
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(11),
+              border: Border.all(color: AppColors.primary, width: 1.3),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.forum_outlined,
+                  color: AppColors.primaryDark,
+                  size: 20,
+                ),
+                const SizedBox(width: 7),
+                Text(
+                  'الدردشة مع العيادة',
+                  style: GoogleFonts.cairo(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w900,
+                    color: AppColors.primaryDark,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _BookingButton extends StatelessWidget {
   const _BookingButton({required this.onTap});
 
@@ -1006,12 +1171,19 @@ class _BookingButton extends StatelessWidget {
               border: Border.all(color: const Color(0xFFE3E8EA), width: 1.2),
             ),
             child: Center(
-              child: Text(
-                'حجز موعد',
-                style: GoogleFonts.cairo(
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w900,
-                  color: AppColors.primary,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    'حجز موعد',
+                    maxLines: 1,
+                    style: GoogleFonts.cairo(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w900,
+                      color: AppColors.primary,
+                    ),
+                  ),
                 ),
               ),
             ),

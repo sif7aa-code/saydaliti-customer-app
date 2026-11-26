@@ -7,6 +7,9 @@ import { bus } from './events.js';
 //   حدث بلا أن يشعر الجهاز. النبضة سطر تعليق في SSE فلا تحمل بيانات.
 const HEARTBEAT_MS = 10000;
 
+/** آخر ١٠ أرقام — صيغ الرقم تختلف (07.. / 7.. / +964..) والحدث واحد. */
+const normPhone = (p) => String(p || '').replace(/\D/g, '').slice(-10);
+
 /**
  * مركز البث عبر Server-Sent Events.
  *
@@ -74,6 +77,35 @@ class RealtimeHub {
         this.remove(client);
       }
     }
+  }
+
+  /**
+   * ★ يدفع حدثاً **لصاحب الرقم وحده** — مطابقة بآخر ١٠ أرقام كي لا
+   *   تفلت صيغ الرقم، ولا يصل حدث رقمٍ إلى جهاز حساب آخر.
+   *
+   *   يُستعمل لحدث `notify.new`: صفّ إشعار جديد ⇒ التطبيق المفتوح
+   *   يسحب إشعاره **الآن** بدل فحصٍ كل ثانية، فيبقى الوصول فورياً
+   *   والاستهلاك أضعافاً أقلّ.
+   */
+  sendToPhones(topic, payload, phones) {
+    if (this.clients.size === 0) return 0;
+    const keys = new Set(phones.map(normPhone).filter(Boolean));
+    if (keys.size === 0) return 0;
+    const body = JSON.stringify(payload);
+    let sent = 0;
+    for (const client of this.clients) {
+      if (!keys.has(normPhone(client.meta?.phone))) continue;
+      this.total += 1;
+      sent += 1;
+      try {
+        client.res.write(
+          `id: ${client.id}-${Date.now()}\nevent: ${topic}\ndata: ${body}\n\n`,
+        );
+      } catch {
+        this.remove(client);
+      }
+    }
+    return sent;
   }
 
   get size() {

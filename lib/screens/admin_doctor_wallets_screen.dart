@@ -3,12 +3,13 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../core/theme/app_colors.dart';
 import '../core/utils/currency_formatter.dart';
+import '../core/utils/deduction_label.dart';
 import '../services/admin_password_session.dart';
 import '../services/supabase_service.dart';
 import '../widgets/app_refresh_indicator.dart';
 
-/// ★ محافظ الأطباء (الأدمن): لكل عيادة كشفياتها كاملة، استقطاع ثابت 500
-///   دينار لكل حجز، الصافي، المصروف بالتصفير، والمستحق الآن.
+/// ★ محافظ الأطباء (الأدمن): لكل عيادة كشفياتها كاملة، الاستقطاع الذي
+///   حدده الأدمن (ثابت أو نسبة)، الصافي، المصروف بالتصفير، والمستحق الآن.
 ///
 ///   كل الأرقام من `admin_list_doctor_wallets()` المحمية بالأدمن. التصفير
 ///   **يدوي من هذه الشاشة وحدها**: يسجّل «صرفاً» بقيمة المستحق فيصبح
@@ -395,6 +396,11 @@ class _ClinicWalletCard extends StatelessWidget {
     final net = (item['net'] as num?)?.toDouble() ?? 0;
     final paid = (item['paid'] as num?)?.toDouble() ?? 0;
     final due = (item['due'] as num?)?.toDouble() ?? 0;
+    final rule = deductionText(
+      deductionMethodOf(item['commission_method']),
+      (item['commission_value'] as num?)?.toDouble() ?? 0,
+      unit: 'حجز',
+    );
     final overpaid = paid > net ? paid - net : 0.0;
     final resetAt = DateTime.tryParse(
       item['reset_at']?.toString() ?? '',
@@ -479,15 +485,14 @@ class _ClinicWalletCard extends StatelessWidget {
                   ),
                 ],
               ),
-              // ★ السعر والاستقطاع مرئيّان دائماً (بلا توسيع): الكشفية
-              //   15,000 للحجز، استقطاع ثابت 500، ثم الصافي — والمستحق
-              //   في الشارة أعلى البطاقة.
+              // ★ السعر والاستقطاع مرئيّان دائماً (بلا توسيع): الكشفيات،
+              //   الاستقطاع المفروض (ثابت أو نسبة كما ضبطه الأدمن)، ثم
+              //   الصافي — والمستحق في الشارة أعلى البطاقة.
               const SizedBox(height: 6),
               Text(
                 'الكشفيات ${CurrencyFormatter.format(gross)}  ·  '
-                'استقطاع ثابت: '
-                '${CurrencyFormatter.format(commission)}  ·  '
-                'الصافي ${CurrencyFormatter.format(net)}',
+                'الاستقطاع ${CurrencyFormatter.format(commission)} ($rule)'
+                '  ·  الصافي ${CurrencyFormatter.format(net)}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.cairo(
@@ -517,7 +522,7 @@ class _ClinicWalletCard extends StatelessWidget {
                   children: [
                     _StatBox(
                       icon: Icons.remove_circle_outline_rounded,
-                      label: 'الاستقطاع الثابت',
+                      label: 'الاستقطاع',
                       value: CurrencyFormatter.format(commission),
                     ),
                     _StatBox(

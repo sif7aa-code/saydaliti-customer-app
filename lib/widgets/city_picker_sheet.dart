@@ -37,7 +37,7 @@ class _CityPickerSheet extends StatelessWidget {
       canPop: allowClose,
       child: SafeArea(
         top: false,
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(20, 10, 20, 22),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -119,6 +119,16 @@ class _CityPickerSheet extends StatelessWidget {
                 ),
                 const SizedBox(height: 10),
               ],
+              // ★ مدن معلنة بعد: تُرى في القائمة ولا تُختار حتى تُفتح
+              //   خدمتها، فلا أحد يظنها متاحة ثم يجدها فارغة.
+              for (final city in CityStore.upcomingCities) ...[
+                _CityTile(
+                  city: city,
+                  icon: Icons.apartment_rounded,
+                  soon: true,
+                ),
+                const SizedBox(height: 10),
+              ],
               Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 16,
@@ -170,59 +180,81 @@ class _CityTile extends StatelessWidget {
   const _CityTile({
     required this.city,
     required this.icon,
-    required this.onTap,
+    this.onTap,
+    this.soon = false,
   });
 
   final String city;
   final IconData icon;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
+
+  /// مدينة لم تُفتح خدمتها بعد: بلا لمس، وبشعار «قريباً».
+  final bool soon;
 
   @override
   Widget build(BuildContext context) {
+    final row = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.divider),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: soon ? AppColors.background : AppColors.primaryLight,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              icon,
+              size: 22,
+              color: soon ? AppColors.textHint : AppColors.primary,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              city,
+              style: GoogleFonts.cairo(
+                fontSize: 16,
+                fontWeight: FontWeight.w900,
+                color: soon ? AppColors.textSecondary : AppColors.textPrimary,
+              ),
+            ),
+          ),
+          if (soon)
+            Text(
+              'قريباً',
+              style: GoogleFonts.cairo(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textHint,
+              ),
+            )
+          else
+            const Icon(
+              Icons.chevron_left_rounded,
+              size: 22,
+              color: AppColors.primary,
+            ),
+        ],
+      ),
+    );
+
     return Material(
       color: AppColors.surface,
       borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppColors.divider),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 42,
-                height: 42,
-                alignment: Alignment.center,
-                decoration: const BoxDecoration(
-                  color: AppColors.primaryLight,
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(icon, size: 22, color: AppColors.primary),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  city,
-                  style: GoogleFonts.cairo(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w900,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-              ),
-              const Icon(
-                Icons.chevron_left_rounded,
-                size: 22,
-                color: AppColors.primary,
-              ),
-            ],
-          ),
-        ),
-      ),
+      child: soon
+          ? row
+          : InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(16),
+              child: row,
+            ),
     );
   }
 }

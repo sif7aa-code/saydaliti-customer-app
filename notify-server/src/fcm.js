@@ -32,11 +32,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const log = (m) => console.log(`[${new Date().toISOString()}] [fcm] ${m}`);
 
 /**
- * ★★ قنوات أندرويد بأصواتها — لكل نوع حدث قناته كي يُسمع الصوت
- *   الصحيح (نغمة قبول ≠ رفض ≠ تغيّر سعر) حتى والتطبيق مغلق.
+ * قنوات أندرويد لكل نوع حدث — ليعمل الصوت والتطبيق مغلق.
  *
- *   كان الإرسال يضبط `channel_id: 'default'` ⇒ كل الأحداث تُسمع
- *   بنغمة واحدة، ويختلط «تم القبول» بـ«تم الرفض» سماعياً.
+ * ★ منذ 2026-11-24 كل القنوات تشير إلى ملفات res/raw التي تحمل
+ *   **جرساً واحداً** (أمر الأدمن: صوت واحد لكل حالات الطلبات)،
+ *   فالقناة هنا تبقى لضمان وصول الإشعار بصوتٍ في الخلفية لا لتمييز
+ *   نغمةٍ عن أخرى.
  *   المعرّفات تطابق ما ينشئه التطبيق (NotifyChannels) وما يستعمله
  *   `tools/push_worker.js` حرفياً.
  */
@@ -194,6 +195,27 @@ export class FcmSender {
     //   يعرض إشعارَين بصوتين — وهو عين «التكرار» المشتكى منه.
     this._dedupe = new Map(); // key => timestamp
     this.deduped = 0;
+    // ★★ قناة النغمة التي اختارها المستخدم على هاتفه (٢٠٢٦-١١-٢٦):
+    //   توكن ⇒ معرّف قناة محلي أنشأه التطبيق بصوت من أصوات الهاتف.
+    //   لا تُخزَّن في القاعدة ولا تُطلب من الهاتف عند كل إشعار: سطر
+    //   واحد عند التغيير، ثم يُستعمل لكل رسالة بعدها بلا استهلاك.
+    this.channelByToken = new Map();
+  }
+
+  /** يربط توكن الجهاز بقناة نغمته المحلية ('' = نغمة التطبيق). */
+  setChannel(token, channel) {
+    const t = String(token || '').trim();
+    if (!t || t.length > 4096) return false;
+    const c = String(channel || '').trim().slice(0, 64);
+    if (c && !/^strasopa_snd_[0-9a-f]+$/.test(c)) return false;
+    if (c) this.channelByToken.set(t, c);
+    else this.channelByToken.delete(t);
+    // سقف الذاكرة: أقدم المدخلات تُنسى، والتطبيق يعيد الربط عند الفتح.
+    while (this.channelByToken.size > 5000) {
+      const first = this.channelByToken.keys().next().value;
+      this.channelByToken.delete(first);
+    }
+    return true;
   }
 
   /** الإرسال الفعلي كله من مفتاح **diqarapp** (أمر الأدمن ٢٠٢٦-١١-٢٤). */
@@ -343,8 +365,8 @@ export class FcmSender {
       const accessToken = await this._token(sa);
       // ★★ لا صورة ولا شعار في الإشعار إطلاقاً (أمر الأدمن ٢٠٢٦-١١-٠٦):
       //   كان `image` يُركَّب كصورة كبيرة في شريط الإشعارات، فظهر
-      //   شعارٌ داخل أيقونة الإشعار. أيقونة الشريط تبقى شاحنة
-      //   التطبيق (`ic_stat_notification`) وحدها؛ الحجة `image`
+      //   شعارٌ داخل أيقونة الإشعار. أيقونة الشريط هي شعار التطبيق
+      //   الظلّي (`ic_stat_notification`) وحده؛ الحجة `image`
       //   بقيت في التوقيع ولا تُستعمل — فلا لمس لمسار الإرسال.
       const base = {
         token,
@@ -409,8 +431,19 @@ export class FcmSender {
                   //   التطبيق) بدل `'default'` الذي كان يجعل كل الأحداث
                   //   تُسمع بنغمة واحدة.
                   notification: {
-                    sound: 'default',
-                    channel_id: channelFor(data.sound || data.type || data.status),
+                    // أندرويد 8+ يتجاهل هذا الحقل ويقرأ صوت القناة؛
+                    // ويبقى مفيداً لأندرويد 7 = ملف الجرس في res/raw.
+                    sound: 'new_order',
+                    // ★ نغمة المستخدم على هذا الهاتف تتقدّم على قناة
+                    //   الحدث؛ التطبيق أرسل معرّف القناة عند اختيارها.
+                    channel_id:
+                      this.channelByToken.get(token) ||
+                      channelFor(data.sound || data.type || data.status),
+                    // ★ ظهور على الشاشة وفي شريط الحالة والتطبيق مقفل:
+                    //   أولوية عالية + ظهور على شاشة القفل بلا إخفاء.
+                    notification_priority: 'PRIORITY_HIGH',
+                    default_vibrate_timings: true,
+                    visibility: 'PUBLIC',
                   },
                   // ★ عمر قصير: إن تأخّرت الرسالة (بطارية/شبكة) أكثر من
                   //   ١٠ دقائق فخبرُها صار قديماً — وطابور القاعدة يعرضها

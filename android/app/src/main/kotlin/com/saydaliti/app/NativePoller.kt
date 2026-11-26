@@ -162,7 +162,9 @@ object NativePoller {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        val n = NotificationCompat.Builder(context, channelFor(sound))
+        // ★ نغمة المستخدم من أصوات هاتفه تتقدّم على قناة الحدث.
+        val channel = NotificationSounds.channelId(context) ?: channelFor(sound)
+        val builder = NotificationCompat.Builder(context, channel)
             .setSmallIcon(R.drawable.ic_stat_notification)
             .setContentTitle(title)
             .setContentText(body)
@@ -171,7 +173,16 @@ object NativePoller {
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(pi)
-            .build()
+        // قبل أندرويد 8 لا قنوات ⇒ النغمة تُضبط على الإشعار نفسه.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            val customUri = NotificationSounds.uri(context)
+            if (customUri == NotificationSounds.SILENT_URI) {
+                builder.setSound(null)
+            } else if (customUri != null && customUri.isNotEmpty()) {
+                builder.setSound(android.net.Uri.parse(customUri))
+            }
+        }
+        val n = builder.build()
 
         try {
             mgr.notify(id.hashCode() and 0x3fffffff, n)

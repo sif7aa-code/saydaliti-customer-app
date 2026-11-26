@@ -57,6 +57,8 @@ class StrasopaApplication : Application() {
             val manager = getSystemService(NotificationManager::class.java)
             if (manager != null) {
                 NotifyChannels.createAll(this, manager)
+                // قناة نغمة المستخدم (إن اختار واحدة) — تُعاد إن غابت.
+                NotificationSounds.ensure(this)
                 // قناة صامتة لإشعار الخدمة الأمامية الدائم.
                 BackgroundMonitorService.ensureChannel(this)
             }

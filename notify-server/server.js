@@ -46,6 +46,46 @@ if (!API_KEY) {
 //   أي أن الإشعارات ستمرّ بلا ظهور بعد إغلاق التطبيق.
 const fcm = new FcmSender({ onLog: (m) => log(m) });
 
+// ---------------------------------------------------------------------
+//  نغمة كل جهاز: توكن ⇒ قناة محلية أنشأها التطبيق بصوت من أصوات الهاتف.
+//  ★ ليست في القاعدة ولا تُسأل عند كل إشعار: يرسلها الجهاز مرة عند
+//    تغيير النغمة، فيُوجَّه إشعاره القادم إلى قناته حتى والتطبيق مغلق.
+//  ★ تُحفظ في ملف صغير على القرص فتبقى بعد إعادة تشغيل الخدمة.
+// ---------------------------------------------------------------------
+const SOUND_MAP_FILE =
+  process.env.SOUND_MAP_FILE || path.join(__dirname, 'sound-map.json');
+
+try {
+  const saved = JSON.parse(fs.readFileSync(SOUND_MAP_FILE, 'utf8'));
+  let restored = 0;
+  if (saved && typeof saved === 'object') {
+    for (const [t, c] of Object.entries(saved)) {
+      if (fcm.setChannel(t, c)) restored += 1;
+    }
+  }
+  log(`نغمات الأجهزة المحفوظة: ${restored}`);
+} catch {
+  // لا ملف بعد — أول تغيير نغمة يُنشئه.
+}
+
+let soundMapTimer = null;
+const saveSoundMap = () => {
+  if (soundMapTimer) return;
+  soundMapTimer = setTimeout(() => {
+    soundMapTimer = null;
+    try {
+      fs.writeFileSync(
+        SOUND_MAP_FILE,
+        JSON.stringify(Object.fromEntries(fcm.channelByToken)),
+        'utf8',
+      );
+    } catch (e) {
+      log(`حفظ نغمات الأجهزة فشل: ${e?.message || e}`);
+    }
+  }, 800);
+  if (typeof soundMapTimer.unref === 'function') soundMapTimer.unref();
+};
+
 const watcher = new SupabaseWatcher({
   url: process.env.SUPABASE_URL || '',
   key: process.env.SUPABASE_KEY || '',
@@ -61,10 +101,16 @@ const watcher = new SupabaseWatcher({
   //   الأقدم من هذه المدة، كل هذه المدة — على السيرفر وحده بلا
   //   اعتماد على فتح التطبيق (طلب ٢٠٢٦-١١-٠٦). Default ٥ دقائق.
   purgeMs: int(process.env.WATCH_PURGE_MS, 300000),
+  // ★ مضخة صفوف الإشعارات (حجز طبيب، محفظة، وصفة، كود): كل ثانية،
+  //   مستقلة عن سكون استطلاع الطلبات — فلا يتأخر إشعار ٣٠ ثانية.
+  //   قابلة للضبط من systemd بلا لمس الكود: `WATCH_NOTIFY_MS`.
+  notifyPumpMs: int(process.env.WATCH_NOTIFY_MS, 1000),
   fcm,
   // ★ أرقام الأدمن من الإعدادات — تُضاف لقائمة القاعدة، فيصل طلب
   //   جديد لهاتف الأدمن والتطبيق مغلق حتى قبل تنفيذ ملف الأرقام.
   adminPhones: process.env.NOTIFY_ADMIN_PHONES || '',
+  // ★ حدث `notify.new` للبثّ: صفّ إشعار جديد يصل صاحبه الآن بلا فحص.
+  hub,
   onError: (m) => log(`المراقب: ${m}`),
   onLog: (m) => log(m),
 });
@@ -105,11 +151,49 @@ const server = http.createServer((req, res) => {
       idleMs: watcher.idleMs,
       // ★ هل تعمل بوابة الجولة؟ كم جولة اكتفت بالقياس الخفيف؟
       sweepMs: watcher.sweepMs,
+      // ★ مضخة الإشعارات العامة: سرعتها وعدد دوراتها.
+      notifyPumpMs: watcher.notifyPumpMs,
       activeOrders: watcher.activeOrders ?? 0,
       subscribers: hub.size,
+      soundChannels: fcm.channelByToken.size,
       ...watcher.stats,
       ...fcm.stats,
     });
+  }
+
+  if (url.pathname === '/api/sound') {
+    if (!requireKey(req, res)) return;
+    if (req.method !== 'POST') {
+      return json(res, 405, { ok: false, error: 'method_not_allowed' });
+    }
+    let raw = '';
+    let done = false;
+    req.on('data', (chunk) => {
+      raw += chunk;
+      if (raw.length > 8192 && !done) {
+        done = true;
+        json(res, 413, { ok: false, error: 'too_large' });
+        req.destroy();
+      }
+    });
+    req.on('end', () => {
+      if (done) return;
+      let body = {};
+      try {
+        body = JSON.parse(raw || '{}');
+      } catch {
+        return json(res, 400, { ok: false, error: 'bad_json' });
+      }
+      const ok = fcm.setChannel(body.token, body.channel || '');
+      if (!ok) return json(res, 400, { ok: false, error: 'bad_args' });
+      saveSoundMap();
+      log(
+        `نغمة جهاز: ${String(body.token || '').slice(0, 10)}… ⇒ ` +
+          `${body.channel || 'نغمة التطبيق'}`,
+      );
+      return json(res, 200, { ok: true, count: fcm.channelByToken.size });
+    });
+    return;
   }
 
   if (url.pathname === '/api/poke') {

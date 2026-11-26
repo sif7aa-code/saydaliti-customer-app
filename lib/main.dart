@@ -13,6 +13,7 @@ import 'package:path_provider/path_provider.dart';
 import 'app.dart';
 import 'services/auth_service.dart';
 import 'services/background_poller.dart';
+import 'services/device_sound.dart';
 import 'services/fcm_background_handler.dart';
 import 'services/fcm_router.dart';
 import 'services/ios_push_service.dart';
@@ -109,6 +110,8 @@ Future<void> main() async {
       unawaited(NotificationSound.instance.preload());
       // نغمة الإشعار التي اختارها المستخدم في إعدادات الهاتف.
       unawaited(NotificationChannelSettings.instance.init());
+      // نغمة أصوات الهاتف التي اختارها المستخدم (تُحفظ على الجهاز).
+      unawaited(DeviceSound.load());
 
       // ★ خدمة المراقبة الخلفية لا تُشغَّل من هنا بعد اليوم (طلب
       //   2026-11-02: «إشعارات خارجية حتى لو التطبيق مغلق بدون

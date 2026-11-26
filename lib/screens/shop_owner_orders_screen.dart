@@ -248,7 +248,7 @@ class _ShopOwnerOrdersScreenState extends State<ShopOwnerOrdersScreen>
               ),
             ),
             Text(
-              'صافي الأرباح بعد عمولة ${data['commission_rate'] ?? 10}%',
+              'صافي الأرباح بعد الاستقطاع الذي تحدده إدارة التطبيق',
               style: GoogleFonts.cairo(
                 color: Colors.white70,
                 fontSize: 11.5,
@@ -260,7 +260,7 @@ class _ShopOwnerOrdersScreenState extends State<ShopOwnerOrdersScreen>
               children: [
                 _pill('المبيعات', _d(data['gross']), Colors.white),
                 const SizedBox(width: 10),
-                _pill('العمولة', _d(data['commission']), Colors.white70),
+                _pill('الاستقطاع', _d(data['commission']), Colors.white70),
               ],
             ),
           ],
@@ -369,7 +369,7 @@ String _label(Map<String, dynamic> r) {
                           ? 'أرسلته $when'
                           : '$when · مبيعات '
                               '${CurrencyFormatter.format(_d(r['gross']))} '
-                              '− عمولة ${CurrencyFormatter.format(_d(r['commission']))}',
+                              '− استقطاع ${CurrencyFormatter.format(_d(r['commission']))}',
                       style: GoogleFonts.cairo(
                         fontSize: 10.5,
                         height: 1.5,

@@ -1,18 +1,22 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/firebase_web.dart';
 import '../core/utils/account_name.dart';
 import 'auth_service.dart';
+import 'device_sound.dart';
 import 'fcm_background_handler.dart';
 import 'fcm_router.dart';
 import 'notification_center.dart';
 import 'notification_dedup.dart';
+import 'realtime_service.dart';
 import 'status_center.dart';
 import 'supabase_service.dart';
 
@@ -29,6 +33,9 @@ class PushService {
   static final PushService instance = PushService._();
 
   static const String _kToken = 'fcm_token_v1';
+
+  /// آخر (توكن|قناة) أُبلغ بهما السيرفر — فلا إعادة إرسال بلا تغيير.
+  static const String _kSoundSynced = 'fcm_sound_synced_v1';
 
   bool _ready = false;
   String? _token;
@@ -155,14 +162,7 @@ class PushService {
 
     final orderId = data['orderId']?.toString();
     final status = data['status']?.toString();
-    // ★★ شعار الحساب وحده — ولا بديل ولا بديل مشترك.
-    //   كان `bigImage` من السيرفر بديلاً: وهو في `push-worker` إمّا
-    //   شعار الحساب **المُرسَل إليه** (وهو يحتاجه) أو `app_icon.png`
-    //   المشتركة، فكان حساب بلا صورته يعرض شعار غيره. الآن الإشعار
-    //   يحمل شعار صاحبه فقط، ومن لا شعار له فبلا صورة كبيرة.
-    final logo = NotificationCenter.instance.brandImage;
-    final sound = data['sound']?.toString() ?? status;
-
+    final link = (data['link'] ?? '').toString().trim();
     // ★★ نوع الصفّ (`type`) من الخادم هو أساس المفتاح — لا الحالة:
     //   صفوف الجديد/الإرجاع اسمها `new_order` و`reopened` في جدول
     //   notifications، فلو بنينا المفتاح من اسم الحالة لظهر مفتاح
@@ -170,6 +170,22 @@ class PushService {
     final rowType = (data['type']?.toString().trim() ?? '').isNotEmpty
         ? data['type']!.toString().trim()
         : status;
+
+    // ★★ شعار الحساب وحده — ولا بديل ولا بديل مشترك.
+    //   كان `bigImage` من السيرفر بديلاً: وهو في `push-worker` إمّا
+    //   شعار الحساب **المُرسَل إليه** (وهو يحتاجه) أو `app_icon.png`
+    //   المشتركة، فكان حساب بلا صورته يعرض شعار غيره. الآن الإشعار
+    //   يحمل شعار صاحبه فقط، ومن لا شعار له فبلا صورة كبيرة.
+    // ★ استثناء الدردشة: الشعار المطلوب هو شعار **الطرف الآخر**
+    //   (المُرسِل) الذي يضعه الخادم في صورة الإشعار؛ وشعار المستقبِل
+    //   هنا سيعرض صورة نفسه أمام رسالة غيره.
+    final logo = rowType == 'chat'
+        ? (message.notification?.android?.imageUrl ??
+            message.notification?.apple?.imageUrl ??
+            message.notification?.web?.image ??
+            '')
+        : NotificationCenter.instance.brandImage;
+    final sound = data['sound']?.toString() ?? status;
 
     // ★★ توحيد: المفتاح يُبنى بـNotificationDedup.keyFor — وهو المعيار
     //   الوحيد — لا يدوياً، وهو نفسه ما يبنيه الاستطلاع.
@@ -205,10 +221,14 @@ class PushService {
         imageUrl: logo,
         sound: sound,
         dedupeKey: dedupeKey,
-        // ★ علامة داخلية (شاشة الموافقات) لا رابط خارجي.
-        onTap: (data['link'] ?? '').toString().trim() == 'appointments'
+        // ★ علامة داخلية (شاشة الموافقات/حجوزاتي) أو دردشة — لا رابط خارجي.
+        onTap: link == 'appointments'
             ? () => NotificationCenter.onAppointmentsTap?.call()
-            : null,
+            : (link == 'bookings'
+                  ? () => NotificationCenter.onBookingsTap?.call()
+                  : (link.startsWith('chat:')
+                        ? () => NotificationCenter.onChatTap?.call(link)
+                        : null)),
       ),
     );
   }
@@ -224,9 +244,14 @@ class PushService {
     if (hasOrder) return;
 
     final link = message.data['link']?.toString().trim() ?? '';
-    // ★ علامة داخلية (شاشة الموافقات) لا رابطاً خارجياً — الموجّه فتحها
-    //   أعلاه، فلا نحاول فتح «https://appointments» في المتصفح.
-    if (link.isEmpty || link == 'appointments') return;
+    // ★ علامة داخلية (شاشة الموافقات/حجوزاتي) أو دردشة فتحها الموجّه
+    //   أعلاه — فلا نحاول فتحها في المتصفح.
+    if (link.isEmpty ||
+        link == 'appointments' ||
+        link == 'bookings' ||
+        link.startsWith('chat:')) {
+      return;
+    }
     final uri = Uri.tryParse(link.startsWith('http') ? link : 'https://$link');
     if (uri == null) return;
     unawaited(launchUrl(uri, mode: LaunchMode.externalApplication));
@@ -278,6 +303,10 @@ class PushService {
     } catch (e) {
       if (kDebugMode) print('FCM local save error: $e');
     }
+    // ★ نغمة هذا الهاتف: السيرفر يحتاج قناتها كي يرنّ الإشعار بصوت
+    //   الاختيار والتطبيق مغلق (والنظام هو من يرسمه، لا التطبيق).
+    //   رسالة واحدة عند التغيّر فقط — لا شيء في كل إشعار.
+    unawaited(_syncSound(token));
     final phone = AuthService.instance.phone;
     if (phone == null || phone.isEmpty) return;
     try {
@@ -342,6 +371,47 @@ class PushService {
       }
     } catch (e) {
       if (kDebugMode) print('FCM server save error: $e');
+    }
+  }
+
+  Future<void> _syncSound(String token) async {
+    // التحميل أولاً: قد يسبق `_saveToken` اكتمال `DeviceSound.load` عند
+    // الإقلاع، وإرسال '' حينها يمحو ربط الجهاز بقناته على السيرفر.
+    await DeviceSound.load();
+    await syncSoundChannel(DeviceSound.channelId, token: token);
+  }
+
+  /// يربط توكن هذا الجهاز بقناة نغمته المحلية على سيرفر الإشعارات.
+  ///
+  /// لماذا على السيرفر: الإشعار والتطبيق مغلق يرسمه أندرويد عبر FCM،
+  /// وصوته يقرأ من `channel_id` الذي يرسله السيرفر — لا يقرأ الهاتف
+  /// قناته المحلية بنفسه. فيُرسَل الربط مرة واحدة عند تغيّر النغمة
+  /// (أو تغيّر التوكن) ويُحفظ على القرص هناك، فلا رحلة لكل إشعار.
+  ///
+  /// فشل الشبكة غير ضار: يُعاد المحاولة عند أول فتح (`_saveToken`).
+  Future<void> syncSoundChannel(String? channel, {String? token}) async {
+    final t = (token ?? _token ?? '').trim();
+    if (t.isEmpty) return;
+    final ch = (channel ?? '').trim();
+    final marker = '$t|$ch';
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getString(_kSoundSynced) == marker) return;
+      final res = await http
+          .post(
+            Uri.parse('${RealtimeService.host}/api/sound'),
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': RealtimeService.apiKey,
+            },
+            body: jsonEncode({'token': t, 'channel': ch}),
+          )
+          .timeout(const Duration(seconds: 8));
+      if (res.statusCode == 200) {
+        await prefs.setString(_kSoundSynced, marker);
+      }
+    } catch (e) {
+      if (kDebugMode) print('FCM sound sync error: $e');
     }
   }
 

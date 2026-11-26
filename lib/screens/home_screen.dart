@@ -585,16 +585,22 @@ class _MedsTopBar extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  'اطباء ذي قار',
-                  style: GoogleFonts.cairo(
-                    color: Colors.white,
-                    fontSize: 19,
-                    fontWeight: FontWeight.w900,
-                    height: 1,
+                // ★ مرن: مع أيقونة الدردشة صارت أزرار الرأس أكثر، فالاسم
+                //   يقصر بـ«…» على الشاشات الضيقة (360dp) بدل تجاوز الصف.
+                Expanded(
+                  child: Text(
+                    'اطباء ذي قار',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.cairo(
+                      color: Colors.white,
+                      fontSize: 19,
+                      fontWeight: FontWeight.w900,
+                      height: 1,
+                    ),
                   ),
                 ),
-                const Spacer(),
+                const SizedBox(width: 6),
                 InkWell(
                   onTap: onOpenCityPicker,
                   borderRadius: BorderRadius.circular(16),

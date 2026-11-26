@@ -181,6 +181,7 @@ class AppointmentStateChip extends StatelessWidget {
     final color = switch (status) {
       'pending' => AppColors.warning,
       'approved' => AppColors.success,
+      'called' => AppColors.accentDeep,
       'accepted' => AppColors.success,
       'done' => AppColors.success,
       'cancelled' => AppColors.textHint,

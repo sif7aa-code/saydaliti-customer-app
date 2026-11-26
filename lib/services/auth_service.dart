@@ -8,6 +8,7 @@ import 'doctor_service.dart';
 import 'notification_dedup.dart';
 import 'notification_center.dart';
 import 'notification_sound.dart';
+import 'presence_service.dart';
 import 'push_service.dart';
 import 'supabase_service.dart';
 import 'admin_password_session.dart';
@@ -60,7 +61,12 @@ class AuthService extends ChangeNotifier {
   ///   الحالة أو الاسم من اللوحة يجب أن يظهر في «حسابي» قريباً من
   ///   الفوري. النداء نفسه دالة واحدة خفيفة (`app_read_own_user`)،
   ///   والقراءات الأثقل (الصيدلية/العيادة) تحتفظ بمهَلها الخاصة.
-  static const Duration roleWatchInterval = Duration(seconds: 10);
+  /// ★ 2026-11-25: «تغيير اسم الحساب من اللوحة لم يتغيّر فوراً» —
+  ///   صار المسار الأساسي حدثَ بثّ `profile` (أقل من ثانية، انظر
+  ///   `notification_center.dart`)، وهذه الدورة **احتياط** حين ينقطع
+  ///   البثّ أو لم يُشغَّل مشغّل القاعدة بعد ⇒ خُفّضت إلى ٣ ثوانٍ.
+  ///   لا تعمل إلا والتطبيق أمام المستخدم (`pauseRoleWatch` في الخلفية).
+  static const Duration roleWatchInterval = Duration(seconds: 3);
 
   bool _isLoggedIn = false;
   String? _name;
@@ -77,6 +83,10 @@ class AuthService extends ChangeNotifier {
   String? _clinicLookupPhone;
   DateTime _clinicLookupAt = DateTime.fromMillisecondsSinceEpoch(0);
   static const Duration _clinicLookupTtl = Duration(seconds: 60);
+  /// ★ جيل دور العيادة: قراءة بدأت **قبل** إبطال الكاش من إشارة
+  ///   `profile` قد تعود بالدور القديم؛ بلا هذا الحارس تُخزَّن
+  ///   دقيقة كاملة فيبدو التغيير متأخراً.
+  int _clinicGeneration = 0;
   // ★ لقطة الأدوار السابقة — تُقارن بالدورية لكشف تبديل الدور من
   //   الأدمن أثناء تشغيل التطبيق (بلا إعادة دخول).
   bool _prevIsDriver = false;
@@ -293,6 +303,45 @@ class AuthService extends ChangeNotifier {
   int _missingStreak = 0;
 
   /// يجلب المستخدم من قاعدة البيانات ويحدّث دوره (عميل/مندوب/أدمن/صاحب صيدلية).
+  /// ★ إشارة فورية من مركز الإشعارات حين يعيّن الطبيب سكرتيراً أو يغيّره
+  ///   أو يحذفه (إشعار type='role'). نُلغي كاش الدقيقة ونقرأ الدور الآن،
+  ///   فيتحول الجهاز لواجهة العيادة (أو يعود للواجهة العادية) فوراً
+  ///   بدل انتظار دورة الفحص.
+  void refreshClinicRoleNow() {
+    if (!_isLoggedIn) return;
+    _clinicGeneration++;
+    _clinicLookupPhone = null;
+    _clinicLookupAt = DateTime.fromMillisecondsSinceEpoch(0);
+    unawaited(refreshFromServer());
+  }
+
+  /// ★★ إشارة القاعدة أن هذا الحساب تغيّر (اسم/صورة/دور/تعطيل).
+  ///
+  ///   تأتي من حدث البثّ `profile` الذي يكتبه مشغّل
+  ///   `SQL_PROFILE_SYNC_SIGNAL.sql` لحظة التغيير.
+  ///
+  ///   · قراءة صريحة واحدة (`app_read_own_user` بلا تحويل) تحسم أمر
+  ///     التعطيل: `is_active = false` مؤكّد ⇒ خروج فوري كما وعدت
+  ///     رسالة اللوحة «يُمنع من التطبيق فوراً».
+  ///   · وإلا نمرّ بمسار التحديث الكامل مع **إبطال كاش دور العيادة**:
+  ///     تعيين/إرجاع طبيب أو سكرتير، أو مندوب/صاحب صيدلية ⇒ زبون،
+  ///     يظهر في هذه اللحظة لا بعد دورة الدقيقة.
+  Future<void> refreshAccountSignal() async {
+    if (!_isLoggedIn || _phone == null || _phone!.isEmpty) return;
+    final phone = _phone!;
+    SupabaseService.instance.setSessionToken(_sessionToken);
+    final row = await SupabaseService.instance.readOwnUserRow(phone);
+    // تبدّل الحساب أو خرج أثناء الانتظار ⇒ اترك للأحدث.
+    if (!_isLoggedIn || _phone != phone) return;
+    if (row != null && row['is_active'] == false) {
+      _accountRemoved = true;
+      _stopRoleWatch();
+      await _forceSignOut();
+      return;
+    }
+    refreshClinicRoleNow();
+  }
+
   Future<void> refreshFromServer() async {
     if (!_isLoggedIn || _phone == null || _phone!.isEmpty) return;
     if (_refreshing) return;
@@ -464,8 +513,12 @@ class AuthService extends ChangeNotifier {
         DateTime.now().difference(_clinicLookupAt) < _clinicLookupTtl;
     if (fresh) return;
 
+    final gen = _clinicGeneration;
     final ctx = await DoctorService.instance.myRoles();
     if (!_isLoggedIn || _phone == null) return;
+    // إبطال وقع أثناء القراءة ⇒ النتيجة قد تسبق التغيير ⇒ لا تُخزَّن،
+    // والدورة التالية (3 ثوانٍ) تقرأ من جديد.
+    if (gen != _clinicGeneration) return;
     final failed =
         (SupabaseService.instance.lastRpcError ?? '').trim().isNotEmpty;
     _clinicLookupPhone = _phone;
@@ -549,6 +602,10 @@ class AuthService extends ChangeNotifier {
     _clinicLookupPhone = null;
     _clinicLookupAt = DateTime.fromMillisecondsSinceEpoch(0);
     _accountRemoved = false;
+    // ★ عدّاد الغياب لا يعبر بين الجلسات: بقاياه من شبكة متعثّرة
+    //   سابقاً كانت تجعل أول فحص بعد دخول جديد يبلغ الحدّ فيُخرج
+    //   المستخدم فوراً إلى شاشة الدخول من جديد.
+    _missingStreak = 0;
     _shopId = _isShopOwner ? shopId : _shopId;
     _shopName = _isShopOwner ? shopName : _shopName;
     // ★ الكتابات كانت **عشر عمليات `await` متتالية** ⇒ عشر رحلات
@@ -598,6 +655,9 @@ class AuthService extends ChangeNotifier {
     _shopLookupPhone = null;
     _shopLookupAt = DateTime.fromMillisecondsSinceEpoch(0);
     if (leavingPhone.isNotEmpty) {
+      // ★ الخروج = خروج من التطبيق: «آخر ظهور» يُختم قبل أن تُفرَّغ
+      //   الجلسة، وإلا بقي الحساب «متصل الآن» حتى تنتهي صلاحية النبضة.
+      await PresenceService.instance.markOfflineNow();
       await SupabaseService.instance
           .deactivatePushTokens(leavingPhone, timeoutSeconds: 3);
     }
@@ -666,6 +726,7 @@ class AuthService extends ChangeNotifier {
     _clinicLookupPhone = null;
     _clinicLookupAt = DateTime.fromMillisecondsSinceEpoch(0);
     _accountRemoved = false;
+    _missingStreak = 0;
     _stopRoleWatch();
     await prefs.setBool(_kLoggedIn, false);
     // ★ لا بدّ من إزالة التوكن المحفوظ أيضاً، وإلا فُتح التطبيق التالي

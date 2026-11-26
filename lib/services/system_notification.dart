@@ -1,15 +1,16 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
+import 'device_sound.dart';
 import 'notification_sound.dart';
 
 /// إشعار نظام حقيقي (يظهر في شريط الإشعارات) بصوت كل نوع إشعار،
 /// ويعمل خارج التطبيق (الخلفية/مقفل).
 ///
-/// ★ لا صورة ولا شعار داخل الإشعار نفسه (أمر الأدمن ٢٠٢٦-١١-٠٦):
-///   أيقونة الشريط تبقى شاحنة التوصيل (`ic_stat_notification`) وحدها.
-///   الشعار ما زال يُعرض في بنر التطبيق الداخلي وفي قائمة الجرس —
-///   لم يُمَسّ أي شعار آخر.
+/// ★ أيقونة الشريط = شعار التطبيق (`ic_stat_notification`) بنسخة ظلّية
+///   مبسّطة (إطار + صليب + دبّوس موقع + نبضة)، لأن أندرويد يرسمها
+///   بيضاء على شفاف ويتجاهل الألوان. لا صورة داخل الإشعار نفسه؛
+///   الشعار الكامل يبقى في بنر التطبيق الداخلي وفي قائمة الجرس.
 ///
 /// كل نوع إشعار له قناة Android مستقلة لها نغمتها
 /// (تُنشأ في `MainActivity.kt` → `NotifyChannels`)، لأن Android
@@ -64,6 +65,9 @@ class SystemNotification {
   /// تهيئة + طلب إذن الإشعارات (أندرويد 13+ / آيفون).
   Future<void> init() async {
     if (_ready) return;
+    // نغمة المستخدم على هذا الهاتف (إن اختار واحدة) تُقرأ أولاً حتى
+    // يُوجَّه أول إشعار إلى قناتها مباشرة.
+    await DeviceSound.load();
     try {
       await _plugin.initialize(
         InitializationSettings(
@@ -128,7 +132,13 @@ class SystemNotification {
   }
 
   /// قناة Android المناسبة لنوع الإشعار.
+  ///
+  /// ★ نغمة اختيار المستخدم (من أصوات هاتفه) تتقدّم على قناة الحدث:
+  ///   كل الإشعارات تُعرض على قناته المخصّصة، فلا يرنّ صوت التطبيق
+  ///   القديم مع الجديد.
   static String channelFor(String? soundOrType) {
+    final custom = DeviceSound.channelId;
+    if (custom != null && custom.isNotEmpty) return custom;
     switch (NotificationSound.resolve(soundOrType)) {
       case NotifySound.newOrder:
         return chNewOrder;
@@ -152,7 +162,13 @@ class SystemNotification {
   }
 
   /// اسم القناة كما يظهر في إعدادات النظام.
-  static String channelName(String id) => _channelNames[id] ?? 'تنبيه عام';
+  static String channelName(String id) {
+    final custom = DeviceSound.channelId;
+    if (custom != null && custom.isNotEmpty && id == custom) {
+      return DeviceSound.label;
+    }
+    return _channelNames[id] ?? 'تنبيه عام';
+  }
 
   /// يعرض إشعار النظام بالنص فقط — بلا أي صورة.
   Future<void> show({

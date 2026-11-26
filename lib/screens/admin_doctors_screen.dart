@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../core/theme/app_colors.dart';
 import '../services/city_store.dart';
 import '../services/doctor_directory_service.dart';
+import '../services/doctor_service.dart';
 import '../services/supabase_service.dart';
 import '../widgets/admin_image_uploader.dart';
 import '../widgets/app_image.dart';
@@ -78,6 +79,12 @@ class _AdminDoctorsScreenState extends State<AdminDoctorsScreen> {
   String _errorOr(String fallback) {
     final e = SupabaseService.instance.lastAdminError.trim();
     return e.isEmpty ? fallback : e;
+  }
+
+  /// آخر ١٠ أرقام — للمقارنة بين صيغ الرقم (07… / +964… / مسافات).
+  String _last10(String v) {
+    final d = v.replaceAll(RegExp(r'[^0-9]'), '');
+    return d.length <= 10 ? d : d.substring(d.length - 10);
   }
 
   String _categoryLabel(String value) {
@@ -514,47 +521,74 @@ class _AdminDoctorsScreenState extends State<AdminDoctorsScreen> {
       return;
     }
 
-    final ok = isEdit
-        ? await SupabaseService.instance.updateDoctor(text('id'), {
-            'name': nameCtrl.text.trim(),
-            'title': titleCtrl.text.trim(),
-            'specialty': specialtyCtrl.text.trim(),
-            'area': areaCtrl.text.trim(),
-            'city': city,
-            'phone': phoneCtrl.text.trim(),
-            'info': infoCtrl.text.trim(),
-            'category': category,
-            'is_featured': featured,
-            'is_verified': verified,
-            if (imageChanged) 'image_path': imagePath ?? '',
-            'bio': bioCtrl.text.trim(),
-            'working_hours': hoursCtrl.text.trim(),
-            'notes': notesCtrl.text.trim(),
-            'clinic_address': addressCtrl.text.trim(),
-            'facebook_url': facebookCtrl.text.trim(),
-            'secretary_phone': secretaryCtrl.text.trim(),
-            if (coverChanged) 'cover_url': coverPath.trim(),
-          })
-        : await SupabaseService.instance.addDoctor(
-            name: nameCtrl.text.trim(),
-            title: titleCtrl.text.trim(),
-            specialty: specialtyCtrl.text.trim(),
-            area: areaCtrl.text.trim(),
-            city: city,
-            phone: phoneCtrl.text.trim(),
-            info: infoCtrl.text.trim(),
-            category: category,
-            imagePath: imagePath ?? '',
-            isFeatured: featured,
-            isVerified: verified,
-            bio: bioCtrl.text.trim(),
-            workingHours: hoursCtrl.text.trim(),
-            notes: notesCtrl.text.trim(),
-            clinicAddress: addressCtrl.text.trim(),
-            facebookUrl: facebookCtrl.text.trim(),
-            secretaryPhone: secretaryCtrl.text.trim(),
-            coverUrl: coverPath.trim(),
-          );
+    // ★★ سكرتير العيادة (2026-11-25): لا يُحفظ رقم غير مسجل، والحفظ
+    //   يمرّ بدالة القاعدة `doctor_secretary_set` (تُرسل إشارة فورية
+    //   لحساب السكرتير فيتحول جهازه لواجهة العيادة). لا نكتبه في
+    //   التحديث العام حتى لا نتجاوز الفحص.
+    final secretaryId = text('id');
+    final secretaryRaw = secretaryCtrl.text.trim();
+    final secretaryChanged = isEdit &&
+        _last10(secretaryRaw) != _last10(text('secretary_phone'));
+    String? secretaryError;
+    final profileBody = <String, dynamic>{
+      'name': nameCtrl.text.trim(),
+      'title': titleCtrl.text.trim(),
+      'specialty': specialtyCtrl.text.trim(),
+      'area': areaCtrl.text.trim(),
+      'city': city,
+      'phone': phoneCtrl.text.trim(),
+      'info': infoCtrl.text.trim(),
+      'category': category,
+      'is_featured': featured,
+      'is_verified': verified,
+      if (imageChanged) 'image_path': imagePath ?? '',
+      'bio': bioCtrl.text.trim(),
+      'working_hours': hoursCtrl.text.trim(),
+      'notes': notesCtrl.text.trim(),
+      'clinic_address': addressCtrl.text.trim(),
+      'facebook_url': facebookCtrl.text.trim(),
+      if (coverChanged) 'cover_url': coverPath.trim(),
+    };
+
+    var ok = false;
+    if (secretaryChanged) {
+      final res =
+          await DoctorService.instance.setSecretary(secretaryId, secretaryRaw);
+      if (!res.ok) {
+        secretaryError = res.error;
+      } else {
+        ok = await SupabaseService.instance.updateDoctor(
+          secretaryId,
+          profileBody,
+        );
+      }
+    } else {
+      ok = isEdit
+          ? await SupabaseService.instance.updateDoctor(
+              secretaryId,
+              profileBody,
+            )
+          : await SupabaseService.instance.addDoctor(
+              name: nameCtrl.text.trim(),
+              title: titleCtrl.text.trim(),
+              specialty: specialtyCtrl.text.trim(),
+              area: areaCtrl.text.trim(),
+              city: city,
+              phone: phoneCtrl.text.trim(),
+              info: infoCtrl.text.trim(),
+              category: category,
+              imagePath: imagePath ?? '',
+              isFeatured: featured,
+              isVerified: verified,
+              bio: bioCtrl.text.trim(),
+              workingHours: hoursCtrl.text.trim(),
+              notes: notesCtrl.text.trim(),
+              clinicAddress: addressCtrl.text.trim(),
+              facebookUrl: facebookCtrl.text.trim(),
+              secretaryPhone: secretaryRaw,
+              coverUrl: coverPath.trim(),
+            );
+    }
 
     // ★ يُلتقطان قبل التخلّص من الحقول: الاسم الجديد يُكتب أيضاً في
     //   حساب المستخدم (`users.name`) إن كان للطبيب رقم حساب، فيتغيّر
@@ -584,7 +618,8 @@ class _AdminDoctorsScreenState extends State<AdminDoctorsScreen> {
     _snack(
       ok
           ? (isEdit ? 'تم حفظ التعديل' : 'تمت إضافة الطبيب')
-          : _errorOr(isEdit ? 'تعذر حفظ التعديل' : 'تعذر إضافة الطبيب'),
+          : (secretaryError ??
+                _errorOr(isEdit ? 'تعذر حفظ التعديل' : 'تعذر إضافة الطبيب')),
       ok,
     );
     if (ok) {

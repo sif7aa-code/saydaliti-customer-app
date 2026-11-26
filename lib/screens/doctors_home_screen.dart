@@ -8,13 +8,16 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/theme/app_colors.dart';
+import '../core/utils/currency_formatter.dart';
 import '../models/banner_item.dart';
 import '../models/category_item.dart';
 import '../models/doctor_profile.dart';
 import '../models/product.dart';
 import '../models/shop.dart';
+import '../services/auth_service.dart';
 import '../services/city_store.dart';
 import '../services/doctor_directory_service.dart';
+import '../services/doctor_service.dart';
 import '../services/real_data_service.dart';
 import '../services/tab_refresh.dart';
 import '../widgets/app_image.dart';
@@ -24,6 +27,7 @@ import '../widgets/doctor_list_card.dart';
 import '../widgets/emerald_banner_background.dart';
 import '../widgets/location_header.dart';
 import '../widgets/product_card.dart';
+import '../widgets/provider_application_notice.dart';
 import '../widgets/tap_to_dismiss_keyboard.dart';
 import 'doctor_profile_screen.dart';
 import 'product_details_screen.dart';
@@ -54,8 +58,15 @@ class _DoctorsHomeScreenState extends State<DoctorsHomeScreen>
 
   /// نقرة زرّ «الرئيسية»: صعود للأعلى + تحديث قسري للدليل من الشبكة.
   @override
-  Future<void> Function() onTabRefresh() =>
-      () => _load(force: true);
+  Future<void> Function() onTabRefresh() => _onRefresh;
+
+  /// يُزاد عند السحب/لمس تبويب الرئيسية فيُعيد جلب حالة طلب الانضمام.
+  int _noticeTick = 0;
+
+  Future<void> _onRefresh() async {
+    if (mounted) setState(() => _noticeTick++);
+    await _load(force: true);
+  }
 
   final TextEditingController _searchCtrl = TextEditingController();
 
@@ -81,6 +92,10 @@ class _DoctorsHomeScreenState extends State<DoctorsHomeScreen>
   /// ★ بانرات الأدمن — أعلى الرئيسية، بدل صورة الصيدلية الثابتة.
   ///   فارغة ⇒ تبقى الصورة الحقيقية كما كانت.
   List<BannerItem> _banners = const [];
+
+  /// ★ دور الزبون النشط: رقم الحجز الكبير واسم الطبيب والمتبقي.
+  ///   `null` ⇒ لا بطاقة (لا حجز موافَق عليه، أو انتهت المعاينة).
+  ActiveDoctorTicket? _ticket;
   VoidCallback? _onCatalogChanged;
   VoidCallback? _onDoctorsChanged;
 
@@ -178,6 +193,16 @@ class _DoctorsHomeScreenState extends State<DoctorsHomeScreen>
     final favs = await DoctorDirectoryService.instance.favorites();
     if (!mounted) return;
     setState(() => _favs = favs);
+    // ★ بطاقة الدور النشط: تُقرأ من القاعدة، وتختفي وحدها بعد
+    //   تأكيد انتهاء المعاينة (السجل يبقى في «حجوزاتي»).
+    ActiveDoctorTicket? ticket;
+    if (AuthService.instance.isLoggedIn) {
+      ticket = await DoctorService.instance.activeTicket();
+      if (!mounted) return;
+      setState(() => _ticket = ticket);
+    } else if (_ticket != null) {
+      setState(() => _ticket = null);
+    }
     final list = await DoctorDirectoryService.instance.fetch(force: force);
     final cats = await DoctorDirectoryService.instance.fetchCategories(
       force: force,
@@ -314,7 +339,7 @@ class _DoctorsHomeScreenState extends State<DoctorsHomeScreen>
       });
       return;
     }
-    widget.onOpenTab?.call(3);
+    widget.onOpenTab?.call(4);
   }
 
   /// فتح بروفايل الطبيب المرتبط بالبانر من معرّفه.
@@ -567,7 +592,7 @@ class _DoctorsHomeScreenState extends State<DoctorsHomeScreen>
                 color: Colors.white,
                 child: AppRefreshIndicator(
                   color: AppColors.primary,
-                  onRefresh: () => _load(force: true),
+                  onRefresh: _onRefresh,
                   child: ListView(
                     controller: tabScroll,
                     padding: EdgeInsets.zero,
@@ -577,10 +602,24 @@ class _DoctorsHomeScreenState extends State<DoctorsHomeScreen>
                       //   (تتقلّب بسرعتها التي ضبطها)، وإلا صورة
                       //   الصيدلية الحقيقية بالحركة الهادئة كما كانت.
                       if (_banners.isEmpty)
-                        _KenBurnsBanner(onTap: () => widget.onOpenTab?.call(3))
+                        _KenBurnsBanner(onTap: () => widget.onOpenTab?.call(4))
                       else
                         _HeroBanners(banners: _banners, onTap: _onBannerTap),
                       const SizedBox(height: 10),
+
+                      // رفض/انتظار طلب الانضمام كطبيب أو صيدلاني: أعلى
+                      // الرئيسية حتى يراه صاحبه فور فتح التطبيق.
+                      ProviderApplicationNotice(
+                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+                        reloadTick: _noticeTick,
+                      ),
+
+                      // ★ «دوري الآن» — رقم الحجز كبيراً ما دام الدور فعالاً.
+                      if (_ticket != null)
+                        _ActiveTicketCard(
+                          ticket: _ticket!,
+                          onOpen: () => widget.onOpenTab?.call(2),
+                        ),
 
                       // بحث «ابحث بالاسم» + زرّ «تصفية»
                       Padding(
@@ -717,7 +756,7 @@ class _DoctorsHomeScreenState extends State<DoctorsHomeScreen>
                                       label: 'الأدوية',
                                       icon: Icons.vaccines_outlined,
                                       selected: false,
-                                      onTap: () => widget.onOpenTab?.call(2),
+                                      onTap: () => widget.onOpenTab?.call(3),
                                     );
                                   }
                                   final cat = restCats[i];
@@ -969,16 +1008,22 @@ class _TopBar extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  'اطباء ذي قار',
-                  style: GoogleFonts.cairo(
-                    color: Colors.white,
-                    fontSize: 19,
-                    fontWeight: FontWeight.w900,
-                    height: 1,
+                // ★ مرن: مع أيقونة الدردشة صارت أزرار الرأس أكثر، فالاسم
+                //   يقصر بـ«…» على الشاشات الضيقة (360dp) بدل تجاوز الصف.
+                Expanded(
+                  child: Text(
+                    'اطباء ذي قار',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.cairo(
+                      color: Colors.white,
+                      fontSize: 19,
+                      fontWeight: FontWeight.w900,
+                      height: 1,
+                    ),
                   ),
                 ),
-                const Spacer(),
+                const SizedBox(width: 6),
                 InkWell(
                   onTap: onOpenCityPicker,
                   borderRadius: BorderRadius.circular(16),
@@ -1904,6 +1949,192 @@ class _DirectoryShopCard extends StatelessWidget {
               ),
               const SizedBox(width: 6),
               const Icon(Icons.chevron_left_rounded, color: AppColors.textHint),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// ★ «دوري الآن» — بطاقة الزبون في الرئيسية.
+///
+///   الرقم كبير وواضح، ومع اسم الطبيب وعدد من يسبقه وحالة الحجز.
+///   تبقى ما دام الدور فعالاً، وتختفي تلقائياً بعد تأكيد انتهاء المعاينة
+///   (القاعدة تعيد `ticket: null`)، ويبقى الحجز في سجل «حجوزاتي».
+class _ActiveTicketCard extends StatelessWidget {
+  const _ActiveTicketCard({required this.ticket, this.onOpen});
+
+  final ActiveDoctorTicket ticket;
+  final VoidCallback? onOpen;
+
+  String get _remainingText {
+    if (ticket.isCalled) return 'حان دورك — توجّه إلى العيادة';
+    if (ticket.position <= 0) return 'أنت التالي في الدور';
+    if (ticket.position == 1) return 'يسبقك مريض واحد';
+    return 'يسبقك ${ticket.position} مرضى';
+  }
+
+  String get _whenText {
+    final at = ticket.appointmentAt?.toLocal();
+    if (at == null) return '';
+    final h = at.hour;
+    final period = h < 12 ? 'ص' : 'م';
+    final h12 = h % 12 == 0 ? 12 : h % 12;
+    final mm = at.minute.toString().padLeft(2, '0');
+    return '${at.year}-${at.month.toString().padLeft(2, '0')}-'
+        '${at.day.toString().padLeft(2, '0')} · $h12:$mm $period';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final called = ticket.isCalled;
+    final accent = called ? AppColors.accentDeep : AppColors.primary;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: accent.withValues(alpha: 0.35)),
+      ),
+      child: InkWell(
+        onTap: onOpen,
+        borderRadius: BorderRadius.circular(18),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              Container(
+                width: 74,
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Column(
+                  children: [
+                    Text(
+                      ticket.serialNumber,
+                      style: GoogleFonts.cairo(
+                        fontSize: 30,
+                        height: 1.05,
+                        fontWeight: FontWeight.w900,
+                        color: accent,
+                      ),
+                    ),
+                    Text(
+                      'رقم دورك',
+                      style: GoogleFonts.cairo(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            ticket.doctorName.isEmpty
+                                ? 'دورك في العيادة'
+                                : ticket.doctorName,
+                            style: GoogleFonts.cairo(
+                              fontSize: 14.5,
+                              fontWeight: FontWeight.w900,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: accent.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            called
+                                ? 'حان دورك'
+                                : DoctorStatus.label(ticket.status),
+                            style: GoogleFonts.cairo(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w900,
+                              color: accent,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (ticket.specialty.isNotEmpty)
+                      Text(
+                        ticket.specialty,
+                        style: GoogleFonts.cairo(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _remainingText,
+                      style: GoogleFonts.cairo(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w900,
+                        color: accent,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        if (_whenText.isNotEmpty) ...[
+                          Icon(
+                            Icons.event_available_outlined,
+                            size: 13,
+                            color: AppColors.textHint,
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              _whenText,
+                              style: GoogleFonts.cairo(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.textHint,
+                              ),
+                            ),
+                          ),
+                        ] else
+                          const Spacer(),
+                        if (ticket.examFee > 0) ...[
+                          Text(
+                            CurrencyFormatter.format(ticket.examFee),
+                            style: GoogleFonts.cairo(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w900,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                        ],
+                        Icon(
+                          Icons.chevron_left_rounded,
+                          size: 18,
+                          color: accent,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
         ),

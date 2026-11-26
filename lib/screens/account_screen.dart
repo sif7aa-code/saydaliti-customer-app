@@ -6,6 +6,7 @@ import '../core/privacy_policy.dart';
 import '../core/utils/contact_tools.dart';
 import '../core/utils/currency_formatter.dart';
 import '../services/auth_service.dart';
+import '../services/device_sound.dart';
 import '../services/doctor_service.dart';
 import '../services/local_image_store.dart';
 import '../services/location_service.dart';
@@ -16,7 +17,9 @@ import '../services/supabase_service.dart';
 import '../services/tab_refresh.dart';
 import '../widgets/app_refresh_indicator.dart';
 import '../widgets/app_image.dart';
+import '../widgets/provider_application_notice.dart';
 import 'login_screen.dart';
+import 'notification_sound_screen.dart';
 import 'register_screen.dart';
 import 'doctor_availability_screen.dart';
 import 'doctor_wallet_screen.dart';
@@ -70,6 +73,9 @@ class _AccountScreenState extends State<AccountScreen>
   ///   عادياً فلا يُعرض قسم «العيادة».
   DoctorRoleContext? _clinic;
   bool _clinicLoading = false;
+
+  /// يُزاد عند السحب/لمس التبويب فيعيد جلب حالة طلب الانضمام.
+  int _noticeTick = 0;
 
   /// رقم الحساب الذي قرأنا دور عيادته — يمنع قراءة مكررة ويلتقط
   /// الدخول بعد إنشاء الشاشة (الشاشة نفسها تُبنى للزائر ثم للمسجّل).
@@ -131,6 +137,8 @@ class _AccountScreenState extends State<AccountScreen>
     await NotificationSound.instance.load();
     // نغمة الإشعار التي اختارها المستخدم في إعدادات الهاتف.
     await NotificationChannelSettings.instance.init();
+    // نغمة أصوات الهاتف المحفوظة على هذا الجهاز.
+    await DeviceSound.load();
     final supported = PushService.isSupported;
     final ready = PushService.instance.isReady;
     if (!mounted) return;
@@ -172,7 +180,8 @@ class _AccountScreenState extends State<AccountScreen>
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'كل إشعار له نغمة خاصة: طلب جديد، قبول، رفض، استبدال منتج.',
+                  'صوت واحد لكل الإشعارات: جرس آيفون — طلب جديد، قبول، رفض، '
+                  'توصيل، تغيير سعر، حجز.',
                   style: GoogleFonts.cairo(
                     fontSize: 11,
                     height: 1.6,
@@ -203,23 +212,17 @@ class _AccountScreenState extends State<AccountScreen>
                     }
                   },
                 ),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    for (final s in NotifySound.values)
-                      ActionChip(
-                        label: Text(
-                          _soundLabel(s),
-                          style: GoogleFonts.cairo(
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        visualDensity: VisualDensity.compact,
-                        onPressed: () => NotificationSound.instance.preview(s),
-                      ),
-                  ],
+                ActionChip(
+                  label: Text(
+                    'معاينة الجرس',
+                    style: GoogleFonts.cairo(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () =>
+                      NotificationSound.instance.preview(NotifySound.alert),
                 ),
                 const SizedBox(height: 10),
 
@@ -322,9 +325,13 @@ class _AccountScreenState extends State<AccountScreen>
           ),
           const SizedBox(height: 6),
           Text(
-            customised
-                ? 'اخترتَ: $current — نحترم اختيارك كما هو.'
-                : 'لم تُغيِّر نغمة الإشعارات بعد، فالنغمة الافتراضية تُستخدم.',
+            DeviceSound.hasCustom
+                ? (DeviceSound.isSilent
+                    ? 'نغمتك المختارة الآن: صامت — الإشعار يظهر بلا رنين.'
+                    : 'نغمتك المختارة الآن: ${DeviceSound.label} — من أصوات هاتفك، محفوظة على هذا الجهاز وحده.')
+                : customised
+                    ? 'اخترتَ: $current — نحترم اختيارك كما هو.'
+                    : 'لم تُغيِّر نغمة الإشعارات بعد، فالنغمة الافتراضية تُستخدم.',
             style: GoogleFonts.cairo(
               fontSize: 11,
               height: 1.6,
@@ -334,6 +341,34 @@ class _AccountScreenState extends State<AccountScreen>
           const SizedBox(height: 8),
           Row(
             children: [
+              Expanded(
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                  onPressed: () async {
+                    await Navigator.of(ctx).push(
+                      MaterialPageRoute(
+                        builder: (_) => const NotificationSoundScreen(),
+                      ),
+                    );
+                    await DeviceSound.load();
+                    if (!ctx.mounted) return;
+                    setDlgState(() {});
+                  },
+                  icon: const Icon(Icons.library_music_rounded, size: 17),
+                  label: Text(
+                    DeviceSound.hasCustom ? 'تغيير النغمة' : 'أصوات الإشعارات',
+                    style: GoogleFonts.cairo(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: () async {
@@ -347,7 +382,7 @@ class _AccountScreenState extends State<AccountScreen>
                   },
                   icon: const Icon(Icons.settings_suggest_rounded, size: 17),
                   label: Text(
-                    'فتح إعدادات الإشعارات',
+                    'إعدادات النظام',
                     style: GoogleFonts.cairo(
                       fontSize: 11.5,
                       fontWeight: FontWeight.w700,
@@ -383,28 +418,7 @@ class _AccountScreenState extends State<AccountScreen>
     );
   }
 
-  static String _soundLabel(NotifySound s) {
-    switch (s) {
-      case NotifySound.newOrder:
-        return 'طلب جديد';
-      case NotifySound.accepted:
-        return 'قبول';
-      case NotifySound.delivering:
-        return 'جاري التوصيل';
-      case NotifySound.rejected:
-        return 'رفض';
-      case NotifySound.replaced:
-        return 'استبدال';
-      case NotifySound.priceChanged:
-        return 'تغيير سعر';
-      case NotifySound.delivered:
-        return 'توصيل';
-      case NotifySound.alert:
-        return 'تنبيه';
-    }
-  }
-
-  /// فتح صفحة خدمة العملاء الرسمية على إنستغرام.
+  /// فتح خدمة العملاء في واتساب الرسمي.
   Future<void> _openSupport() async {
     await ContactTools.openSupport(context);
   }
@@ -696,7 +710,7 @@ class _AccountScreenState extends State<AccountScreen>
     final child = _balanceKey.currentState;
     if (child != null) await child.load();
     await _loadClinic();
-    if (mounted) setState(() {});
+    if (mounted) setState(() => _noticeTick++);
   }
 
   /// تعديل صورة الحساب: تُختار من المعرض، تُرفع للسيرفر، وتُحفظ في
@@ -835,6 +849,12 @@ class _AccountScreenState extends State<AccountScreen>
                 onEditAvatar: _uploadingAvatar ? null : _editAvatar,
               ),
             ),
+            // حالة طلب الانضمام كطبيب/صيدلاني: مرفوض مع السبب أو قيد
+            // المراجعة. لا تظهر لحساب بلا طلب أو طلب معتمد.
+            ProviderApplicationNotice(
+              padding: const EdgeInsets.only(top: 10),
+              reloadTick: _noticeTick,
+            ),
             // ★ لم تعد هنا بطاقة «لوحة تحكم الأدمن» (2026-10-11): صارت
             //   اللوحة تطبيقاً منفصلاً (`صيدليتي أدمن`)، فلا دخول إليها من
             //   نسخة الزبائن ولا حتى كود لها في هذا الملف.
@@ -905,7 +925,7 @@ class _AccountScreenState extends State<AccountScreen>
                 ),
                 _SettingsItem(
                   icon: Icons.support_agent_rounded,
-                  title: 'خدمة العملاء (إنستغرام)',
+                  title: 'خدمة العملاء (واتساب)',
                   subtitle: 'تواصل مباشر مع فريق الدعم',
                   color: AppColors.primary,
                   onTap: _openSupport,
@@ -986,7 +1006,7 @@ class _AccountScreenState extends State<AccountScreen>
                   _SettingsItem(
                     icon: Icons.account_balance_wallet_outlined,
                     title: 'محفظة العيادة',
-                    subtitle: 'الصافي بعد خصم ثابت 500 دينار (15,000 ← 14,500)',
+                    subtitle: 'الصافي بعد الاستقطاع الذي تحدده إدارة التطبيق',
                     color: AppColors.accentDeep,
                     onTap: () {
                       Navigator.of(context).push(

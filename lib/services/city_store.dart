@@ -15,6 +15,15 @@ class CityStore {
   /// المدن المتاحة الآن — «المزيد قريباً» ليس مدينة، فلا يُحفظ.
   static const List<String> cities = <String>['الشطرة', 'الناصرية'];
 
+  /// مدن معلنة في القائمة لكنها غير مفتوحة بعد — تُعرض بشعار
+  /// «قريباً» ولا تُختار، فلا تدخل هنا [cities] ولا تُحفظ.
+  static const List<String> upcomingCities = <String>[
+    'الرفاعي',
+    'الغراف',
+    'النصر',
+    'قلعة سكر',
+  ];
+
   String? _chosen;
 
   String? get chosen => _chosen;

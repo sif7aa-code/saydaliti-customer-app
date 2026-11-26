@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'auth_service.dart';
 import 'background_poller.dart';
+import 'chat_service.dart';
 import 'notification_dedup.dart';
 import 'notification_history.dart';
 import 'notification_sound.dart';
@@ -14,6 +15,7 @@ import 'realtime_service.dart';
 import 'status_center.dart';
 import 'supabase_service.dart';
 import 'system_notification.dart';
+import 'tab_refresh.dart';
 
 /// مركز إشعارات يعمل على مستوى التطبيق كله:
 /// يراقب إشعارات المستخدم (الخاصة والعامة) ويعرض أي الجديد فوراً
@@ -54,7 +56,7 @@ class NotificationCenter {
   /// الاستهلاك: الطلب أرخص ما يكون (`get_my_notifications` يقصّ
   /// صفوف رقمك فقط)، والفارق بين ٤ ثوانٍ وثانيتين لا يُذكر أمام
   /// وصول الطلب قبل أن يسبقه العميل إلى الشاشة.
-  static const Duration _fgInterval = Duration(seconds: 1);
+  static const Duration _fgInterval = Duration(seconds: 3);
   static const Duration _bgInterval = Duration(seconds: 2);
 
   /// ★ الخلفية بلا بثّ لكن **مع توكن FCM**: ٣٠ ثانية بدل ثانيتين.
@@ -89,7 +91,11 @@ class NotificationCenter {
   ///     الاستهلاك: ٢١ ميغابايت/يوم لكل هاتف نائم ⇒ ١٫٤ (كل طلب ١٫١٧
   ///     كيلوبايت، أغلبه ترويسة لا جسم).
   ///     أمامية الهاتف لم تُمسّ: ١ و ٣ ثوانٍ كما طلبها صاحب العمل.
-  static const Duration _realtimeFgInterval = Duration(seconds: 3);
+  /// ★★ 2026-11-25 («لا مكلف ولا متأخر»): مع حدث `notify.new` عبر
+  ///   البثّ صار الفحص شبكةَ أمان فقط ⇒ ٣ ثوانٍ عند انقطاع البثّ
+  ///   (بدل ثانية)، و**٢٠ ثانية** والبثّ حيّ (بدل ٣): الوصول عبر
+  ///   الحدث فوري، والاستهلاك الثابت ينخفض أضعافاً.
+  static const Duration _realtimeFgInterval = Duration(seconds: 20);
   static const Duration _realtimeBgInterval = Duration(seconds: 60);
   StreamSubscription<RealtimeEvent>? _rtSub;
 
@@ -164,6 +170,15 @@ class NotificationCenter {
   /// الحجوزات» عند الضغط على إشعار السكرتير. الإشعار يحمل
   /// `link_url = 'appointments'` — علامة داخلية لا رابطاً خارجياً.
   static VoidCallback? onAppointmentsTap;
+
+  /// ★ إشعار المريض بحجزه/دوره (`link_url = 'bookings'`): يفتح
+  ///   «حجوزاتي» داخل التطبيق. تختفي بطاقة الدور وحدها بعد الانتهاء،
+  ///   والسجل يبقى هناك.
+  static VoidCallback? onBookingsTap;
+
+  /// ★ إشعار دردشة العيادة (`link_url = 'chat:<doctorId>:<patient>'`):
+  ///   يفتح شاشة المحادثة داخل التطبيق لا رابطاً خارجياً.
+  static void Function(String link)? onChatTap;
 
   /// يُستدعى عند أي تغيّر في حالة دورة حياة التطبيق.
   ///
@@ -251,6 +266,23 @@ class NotificationCenter {
   void _listenRealtime() {
     _rtSub?.cancel();
     _rtSub = RealtimeService.instance.events.listen((event) {
+      // ★★ صفّ إشعار جديد لرقمي (بثّ السيرفر): اسحب الآن. هذا المسار
+      //   هو ما يجعل الفحص الدوري بطيئاً (20 ثانية) بلا تأخير فعلي.
+      if (event.topic == RtEvent.notifyNew) {
+        // ★★ إشارة تحديث الحساب (اسم/صورة/دور/تعطيل من لوحة الأدمن):
+        //   المشغّل في القاعدة يكتب صفّاً صامتاً `type = profile`
+        //   ويبثّه السيرفر هنا. نقرأ الحساب في هذه اللحظة فيظهر الاسم
+        //   والدور الجديدان فوراً — بلا نغمة ولا بطاقة ولا صفّ في
+        //   الجرس (الصفّ is_global).
+        if (event.data['type']?.toString() == 'profile') {
+          invalidateBrand();
+          unawaited(AuthService.instance.refreshAccountSignal());
+        }
+        _idleStreak = 0;
+        unawaited(_tick());
+        _rearm();
+        return;
+      }
       if (event.topic == RtEvent.productDeleted) {
         // ★ حذف الأدمن لمنتج ليس خبراً للزبائن: لا إشعار ولا صوت.
         //   حدث البث صار هنا لتحديث القوائم بصمت فقط.
@@ -624,12 +656,33 @@ class NotificationCenter {
   /// **يُحذف الصف من السيرفر فور تسليمه** (لا تخزين دائم).
   Future<void> _deliver(Map<String, dynamic> n, {required String id}) async {
     final link = n['link_url']?.toString().trim() ?? '';
+    final type = _nonEmpty(n['type']);
+    // ★ رسالة دردشة جديدة ⇒ نُبلغ الدردشة فوراً فتشحن الشاشة المفتوحة
+    //   وقائمة المحادثات الآن، بلا انتظار استطلاعها الدوري.
+    if (type == 'chat') ChatService.instance.noteIncoming();
+    // ★★ إشارة دور (تعيين/تغيير/حذف سكرتير) ⇒ نقرأ الدور الآن، فيتحول
+    //   جهاز السكرتير إلى واجهة العيادة (أو يخرج منها) في ثوانٍ.
+    if (type == 'role') AuthService.instance.refreshClinicRoleNow();
+    // ★ حدث حجز/دور: نحدّث «الرئيسية» (بطاقة الدور) و«حجوزاتي» فوراً،
+    //   فيتغيّر الرقم والمتبقي أو تختفي البطاقة بعد الانتهاء بلا انتظار.
+    if (type == 'appointment_approved' ||
+        type == 'queue_near' ||
+        type == 'queue_called' ||
+        type == 'appointment_done' ||
+        type == 'appointment_rejected') {
+      TabRefresh.fire('home');
+      TabRefresh.fire('bookings');
+    }
     // ★★ الشعار من الحساب وحده وداخلاً فقط: `brandImage` ترجع
     //   فارغة خارجَ الحساب، فلا يُستعمل `image_url` إلا إن كان
     //   داخلاً — وهو ما كتبه الخادم أصلاً (`account_is_online`).
+    // ★ استثناء الدردشة: `image_url` هو شعار **الطرف المُرسِل**،
+    //   وشعار الحساب هنا سيعرض صورة المستقبِل أمام رسالة غيره.
     final own = brandImage;
-    final logo = own.isNotEmpty ? own : _nonEmpty(n['image_url']);
-    final type = _nonEmpty(n['type']);
+    final sentLogo = _nonEmpty(n['image_url']);
+    final logo = type == 'chat'
+        ? (sentLogo ?? '')
+        : (own.isNotEmpty ? own : sentLogo);
     final sound = _nonEmpty(n['sound']) ?? type;
     final serial = _nonEmpty(n['serial']);
     final orderId = _nonEmpty(n['order_id']);
@@ -648,6 +701,11 @@ class NotificationCenter {
     if (link == 'appointments') {
       // علامة داخلية: لا تُفتح خارجياً، بل شاشة الموافقات.
       onTap = () => onAppointmentsTap?.call();
+    } else if (link == 'bookings') {
+      // علامة داخلية لحجوزات الزبون — لا رابط خارجي.
+      onTap = () => onBookingsTap?.call();
+    } else if (link.startsWith('chat:')) {
+      onTap = () => onChatTap?.call(link);
     } else if (link.isNotEmpty) {
       onTap = () async {
         final uri = Uri.tryParse(

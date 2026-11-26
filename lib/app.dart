@@ -5,16 +5,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'core/theme/app_theme.dart';
+import 'screens/chat_screen.dart' show openChatFromLink;
 import 'screens/doctor_shell.dart';
 import 'screens/driver_orders_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/main_shell.dart';
+import 'screens/my_doctor_appointments_screen.dart';
 import 'screens/secretary_appointments_screen.dart';
 import 'screens/shop_owner_shell.dart';
 import 'services/auth_service.dart';
+import 'services/chat_service.dart';
 import 'services/city_store.dart';
 import 'services/location_service.dart';
 import 'services/notification_center.dart';
+import 'services/presence_service.dart';
 import 'services/push_service.dart';
 import 'services/status_center.dart';
 import 'services/update_guard.dart';
@@ -73,6 +77,21 @@ class _StrasopaAppState extends State<StrasopaApp> with WidgetsBindingObserver {
         ),
       );
     };
+    // ★ إشعار دور المريض: يفتح «حجوزاتي» — والبطاقة في الرئيسية تختفي
+    //   وحدها بعد انتهاء المعاينة، والسجل يبقى هنا.
+    NotificationCenter.onBookingsTap = () {
+      appNavigatorKey.currentState?.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const MyDoctorAppointmentsScreen(),
+        ),
+      );
+    };
+    // ★ إشعار دردشة العيادة: يفتح المحادثة داخل التطبيق لا رابطاً خارجياً.
+    NotificationCenter.onChatTap = openChatFromLink;
+    // ★ شارة الدردشة تُحدَّث في كل التطبيق من مصدر واحد.
+    ChatService.instance.startPolling();
+    // ★ حضور الدردشة: فتح التطبيق = «متصل الآن» الآن وكل ٣٠ ثانية.
+    PresenceService.instance.markOnline();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       StatusCenter.instance.attach(context);
       // رسالة التحديث: فحص واحد لكل فتح للتطبيق، والقرار كله من `app_settings`.
@@ -115,11 +134,18 @@ class _StrasopaAppState extends State<StrasopaApp> with WidgetsBindingObserver {
       unawaited(AuthService.instance.refreshFromServer());
       AuthService.instance.resumeRoleWatch();
       unawaited(PushService.instance.ensureTokenSaved());
+      // ★ حاضر الآن، ونبضة تجديد تبدأ من هنا.
+      PresenceService.instance.markOnline();
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden) {
       // ★★ مطويّ/غير مرئي: لا فائدة من فحص الدور الدوري بلا واجهة.
       AuthService.instance.pauseRoleWatch();
+      // ★ خرج من التطبيق ⇒ يُختم «آخر ظهور» الآن. `inactive` العابر
+      //   (إشعار أو مكالمة) ليس خروجاً فلا يُحسب.
+      if (state != AppLifecycleState.inactive) {
+        PresenceService.instance.markOffline();
+      }
     }
   }
 
@@ -138,11 +164,9 @@ class _StrasopaAppState extends State<StrasopaApp> with WidgetsBindingObserver {
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
-      // ★ بلا شاشة بداية إطلاقاً (طلب الأدمن 2026-10-23): غلاف «سنتر
-      //   الشطرة» حُذف نهائياً، والواجهة تُبنى وتظهر مباشرة فور الفتح.
       home: ListenableBuilder(
-        listenable: AuthService.instance,
-        builder: (context, _) {
+          listenable: AuthService.instance,
+          builder: (context, _) {
           final auth = AuthService.instance;
           // أي تغيّر في الحساب (دخول/خروج/تعطيل) ⇒ تنظيف قائمة الإشعارات
           // وإعادة جلب شعار الحساب الجديد.
@@ -154,6 +178,14 @@ class _StrasopaAppState extends State<StrasopaApp> with WidgetsBindingObserver {
             WidgetsBinding.instance.addPostFrameCallback(
               (_) => NotificationCenter.instance.onAccountChanged(),
             );
+            // ★ تبديل الحساب: صفّر/حدّث شارة الدردشة الآن لا بعد دورة.
+            unawaited(ChatService.instance.refreshUnread());
+            // ★ الحساب الجديد يُعلن حضوره فوراً؛ والخروج يختم آخر ظهور.
+            if ((auth.phone ?? '').trim().isEmpty) {
+              PresenceService.instance.markOffline();
+            } else {
+              PresenceService.instance.markOnline();
+            }
           }
           final removed = auth.accountRemoved;
           if (removed) {
@@ -170,7 +202,7 @@ class _StrasopaAppState extends State<StrasopaApp> with WidgetsBindingObserver {
           // حساب محذوف/معطّل يرى شاشة تسجيل الدخول دائماً.
           if (removed) return const LoginScreen();
           return MainShell(isGuest: !auth.isLoggedIn);
-        },
+          },
       ),
     );
   }

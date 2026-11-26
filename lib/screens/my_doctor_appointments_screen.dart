@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../core/theme/app_colors.dart';
+import '../services/auth_service.dart';
 import '../services/doctor_service.dart';
 import '../services/supabase_service.dart';
+import '../services/tab_refresh.dart';
 import '../widgets/app_refresh_indicator.dart';
 import '../widgets/doctor_appointment_card.dart';
 import '../widgets/doctor_appointment_details.dart';
@@ -27,7 +29,16 @@ class MyDoctorAppointmentsScreen extends StatefulWidget {
 }
 
 class _MyDoctorAppointmentsScreenState
-    extends State<MyDoctorAppointmentsScreen> {
+    extends State<MyDoctorAppointmentsScreen>
+    with TabRefreshTarget<MyDoctorAppointmentsScreen> {
+  /// ★ تبويب «حجوزاتي» في الشريط السفلي (2026-11-24): النقرة عليه
+  ///   تصعد للقائمة وتعيد القراءة، مثل بقية التبويبات.
+  @override
+  String get tabId => 'bookings';
+
+  @override
+  Future<void> Function()? onTabRefresh() => _load;
+
   List<DoctorAppointment> _rows = const [];
   bool _loading = true;
 
@@ -43,6 +54,17 @@ class _MyDoctorAppointmentsScreenState
   }
 
   Future<void> _load() async {
+    // ★ تبويب خلف الهيكل للزائر: لا نداء بلا جلسة، والباب أصلاً
+    //   مغلق بالدخول من الشريط السفلي.
+    if (!AuthService.instance.isLoggedIn) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _rows = const [];
+        _readFailed = false;
+      });
+      return;
+    }
     final list = await DoctorService.instance.mine();
     if (!mounted) return;
     // الفراغ الحقيقي ردّ 2xx بلا صفوف، و`lastRpcError` فيه null. أي سبب
@@ -111,6 +133,7 @@ class _MyDoctorAppointmentsScreenState
     }
     if (_rows.isEmpty) {
       return ListView(
+        controller: tabScroll,
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(24),
         children: [
@@ -153,6 +176,7 @@ class _MyDoctorAppointmentsScreenState
       );
     }
     return ListView.builder(
+      controller: tabScroll,
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(12),
       itemCount: _rows.length,

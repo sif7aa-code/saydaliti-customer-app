@@ -3,16 +3,17 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../core/theme/app_colors.dart';
 import '../core/utils/currency_formatter.dart';
+import '../core/utils/deduction_label.dart';
 import '../services/doctor_service.dart';
 import '../services/supabase_service.dart';
 import '../services/tab_refresh.dart';
 import '../widgets/app_refresh_indicator.dart';
 
-/// ★ «محفظة العيادة» — كشفيات الحجوزات الموافَق عليها، للطبيب وسكرتيره.
+/// ★ «محفظة العيادة» — كشفيات الزيارات المنتهية، للطبيب وسكرتيره.
 ///
-///   كل قيد هنا كتبته `doctor_appointment_approve` داخل القاعدة عند
-///   الموافقة على الحجز: الكشفية 15,000، يُخصم منها استقطاع ثابت 500
-///   دينار لكل حجز (بلا نسبة مئوية)، ويُقيَّد الصافي 14,500 — قيد واحد
+///   كل قيد هنا كتبته `doctor_queue_complete` داخل القاعدة عند تأكيد
+///   انتهاء المعاينة: الكشفية كاملة، يُخصم منها الاستقطاع الذي حدده
+///   الأدمن لكل عيادة — مبلغ ثابت أو نسبة — ويُقيَّد الصافي — قيد واحد
 ///   لا يتكرر (مفتاح فريد على معرّف الحجز). الشاشة تقرأ
 ///   `my_doctor_wallet` التي تعزل برقم الجلسة، فلا حساب يقرأ محفظة
 ///   عيادة غيره.
@@ -118,6 +119,15 @@ class _DoctorWalletScreenState extends State<DoctorWalletScreen>
                       color: AppColors.textPrimary,
                     ),
                   ),
+                  Text(
+                    'الاستقطاع: ${deductionText(w.deductionMethod, w.deductionValue, unit: 'حجز')}'
+                    '${w.deductionIsDefault ? ' (افتراضي)' : ''}',
+                    style: GoogleFonts.cairo(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
                   // كل الأرقام أعلاه من هذه اللحظة: التصفير يقطع الخط
                   // الزمني، فلا يظهر في الحساب أي مبلغ قبله.
                   if (w.resetAt != null)
@@ -214,7 +224,7 @@ class _DoctorWalletScreenState extends State<DoctorWalletScreen>
             const SizedBox(height: 6),
             Text(
               'تُقيَّد الكشفية في المحفظة عند موافقة العيادة على الحجز، '
-              'بعد خصم ثابت 500 دينار لكل حجز.',
+              'بعد الاستقطاع الذي تحدده إدارة التطبيق (مبلغ ثابت أو نسبة).',
               textAlign: TextAlign.center,
               style: GoogleFonts.cairo(
                 fontSize: 11.5,
@@ -290,6 +300,22 @@ class _BalanceCard extends StatelessWidget {
 
   final DoctorWallet? wallet;
 
+  static String _deductionSubtitle(DoctorWallet? wallet) {
+    final wallets = wallet?.wallets ?? const <ClinicWallet>[];
+    if (wallets.isEmpty) {
+      return 'الصافي بعد الاستقطاع الذي تحدده الإدارة';
+    }
+    final first = wallets.first;
+    final same = wallets.every(
+      (w) =>
+          w.deductionMethod == first.deductionMethod &&
+          w.deductionValue == first.deductionValue,
+    );
+    if (!same) return 'الصافي بعد استقطاع تحدده الإدارة لكل عيادة';
+    return 'الصافي بعد استقطاع '
+        '${deductionText(first.deductionMethod, first.deductionValue, unit: 'حجز')}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final balance = wallet?.balance ?? 0;
@@ -334,7 +360,7 @@ class _BalanceCard extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      'الصافي بعد خصم 500 دينار لكل حجز',
+                      _deductionSubtitle(wallet),
                       style: GoogleFonts.cairo(
                         color: Colors.white.withValues(alpha: 0.85),
                         fontSize: 11,
@@ -361,7 +387,7 @@ class _BalanceCard extends StatelessWidget {
             runSpacing: 6,
             children: [
               _TotalLine(label: 'الكشفيات', value: gross),
-              _TotalLine(label: 'الاستقطاع الثابت', value: commission),
+              _TotalLine(label: 'الاستقطاع', value: commission),
               _TotalLine(label: 'الصافي', value: net),
               _TotalLine(label: 'صُرف بالتصفير', value: paid),
             ],

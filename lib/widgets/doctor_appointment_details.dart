@@ -167,19 +167,19 @@ class _DetailsSheet extends StatelessWidget {
                       label: 'ثبّته',
                       value: a.bookedName,
                     ),
-                    // ★ الكشفية سطرها الخاص: استقطاع ثابت 500 دينار لكل
-                    //   حجز معتمد — لا نسبة ولا ضرب، والمنتظر يقول ذلك.
+                    // ★ الكشفية سطرها الخاص. الصافي لا يُحسب هنا: الاستقطاع
+                    //   يحدده الأدمن لكل عيادة ويُقيَّد في القاعدة عند
+                    //   الموافقة — والمحفظة هي التي تعرضه.
                     _InfoRow(
                       icon: Icons.payments_outlined,
                       label: 'كشفية الحجز',
                       value: a.isRejected
                           ? '${CurrencyFormatter.format(a.examFee)} — لم تُقيَّد (مرفوض)'
-                          : a.isPending
-                          ? '${CurrencyFormatter.format(a.examFee)} — تُقيَّد عند الموافقة'
+                          : a.isDone
+                          ? '${CurrencyFormatter.format(a.examFee)}'
+                                ' — مقيَّدة في محفظة العيادة بعد الاستقطاع'
                           : '${CurrencyFormatter.format(a.examFee)}'
-                                ' (صافي '
-                                '${CurrencyFormatter.format(a.examFee - (a.examFee < 500 ? a.examFee : 500))}'
-                                ' بعد استقطاع ثابت 500)',
+                                ' — تُقيَّد عند تأكيد انتهاء المعاينة',
                     ),
 
                     const SizedBox(height: 16),
@@ -260,8 +260,9 @@ class _StepTrack extends StatelessWidget {
   Widget build(BuildContext context) {
     final a = appointment;
     final rejected = a.isRejected;
-    final approved =
-        a.approvedAt != null || a.isApproved || a.isAccepted || a.isDone;
+    final called = a.isCalled || a.isDone;
+    final approved = a.approvedAt != null || a.isApproved || a.isCalled ||
+        a.isAccepted || a.isDone;
     final approvalDetail = rejected
         ? 'رفضت العيادة الموعد — بلا كشفية'
         : approved
@@ -270,6 +271,9 @@ class _StepTrack extends StatelessWidget {
             if (a.approvedAt != null) _clock(a.approvedAt),
           ].join(' · ')
         : 'بانتظار موافقة سكرتير العيادة وكتابة رقم الحجز';
+    final callDetail = a.calledAt != null
+        ? _clock(a.calledAt)
+        : (a.isDone ? '—' : 'بانتظار استدعاء العيادة');
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
       decoration: BoxDecoration(
@@ -314,11 +318,17 @@ class _StepTrack extends StatelessWidget {
               title: 'موافقة العيادة',
               detail: approvalDetail,
               reached: approved,
+              isLast: false,
+            ),
+            _Step(
+              title: 'استدعاء المريض',
+              detail: callDetail,
+              reached: called,
               isLast: !a.isDone,
             ),
             if (a.isDone)
               _Step(
-                title: 'تمّ الحجز',
+                title: 'انتهاء المعاينة',
                 detail: _clock(a.doneAt),
                 reached: true,
                 isLast: true,

@@ -69,7 +69,13 @@ export class SupabaseWatcher {
     limit = 60,
     sweepMs = 60000,
     purgeMs = 300000,
+    // ★ مضخة الإشعارات (صفوف `notifications`) مستقلة عن استطلاع
+    //   الطلبات: كل ثانية، مهما كان السكون — لأن هذه الصفوف تكتبها
+    //   القاعدة (حجز طبيب، محفظة، اعتماد وصفة، كود خصم) بلا نبضة من
+    //   جهاز، فكانت تنتظر دورة السكون حتى ٣٠ ثانية.
+    notifyPumpMs = 1000,
     fcm = null,
+    hub = null,
     adminPhones = '',
     onError = () => {},
     onLog = () => {},
@@ -82,6 +88,10 @@ export class SupabaseWatcher {
     //   لا يخرج شيء من الجهاز أصلاً: بثّ SSE يصل التطبيق المفتوح
     //   وحده، فيبقى الإشعار محصوراً داخله.
     this.fcm = fcm;
+    // ★ مركز البثّ (SSE): صفّ الإشعار الجديد يُدفَع لصاحبه عبره فوراً
+    //   (`notify.new`)، فيسحب التطبيق المفتوح إشعاره الآن بدل فحصٍ كل
+    //   ثانية — وصول أسرع واستهلاك أقلّ.
+    this.hub = hub;
     // ★ فترة السكون: نُبطئ الاستطلاع عندما لا يتغيّر شيء.
     //
     // ★★ خُفّضت من أجل السرعة (طلب ٢٠٢٦-١٠-١٠): كانت ٢٠٠٠٠/٣٠٠٠٠،
@@ -125,15 +135,20 @@ export class SupabaseWatcher {
     //   بلا لمس الكود: `WATCH_PURGE_MS`.
     this.purgeMs = int(purgeMs, 300000);
     this._purgeAt = 0;
+    // ★ مضخة الإشعارات: مؤقّت مستقل عن `_loop`، يمرّ كل `notifyPumpMs`
+    //   على دالة واحدة خفيفة (`get_unpushed_notifications`). هي التي
+    //   تجعل هاتف آيفون وأندرويد يرنّان في اللحظة نفسها لأي صفّ تكتبه
+    //   القاعدة، بلا انتظار استطلاع الطلبات (الذي يهدأ إلى ٣٠ ثانية
+    //   عند الخمول — وذاك كان سبب «تأخير الإشعارات»).
+    this.notifyPumpMs = int(notifyPumpMs, 1000);
+    this._notifyPumpOn = false;
+    this._notifyPumpTimer = null;
+    this._notifyBusy = false;
+    this._tokenReload = null;
     // ★ بعد أي «نبضة» من الجهاز الذي كتب التغيير نبقى بالسرعة الكاملة
     //   هذه المدة، فلا يضيع حدث لاحق في دورة سكون.
     this.hotAfterPokeMs = 8000;
     this._hotUntil = 0;
-    // ★ عمر التوكن المسموح **للصفوف المعطَّلة فقط**: صف لم يظهر صاحبه
-    //   في التطبيق منذ هذا الوقت = جهاز مهجور، ولا يكون «حسابه الثاني
-    //   على نفس الهاتف حيّاً» ⇒ لا يُرسَل له. الحيّ (`is_active=true`)
-    //   لا يُشترط فيه ظهور حديث: التطبيق المغلق هو الغاية من المُرسِل.
-    this.tokenStaleMs = 21 * 24 * 3600 * 1000;
     // طلبات غير منجَزة (pending/accepted/delivering) ⇒ إبقاء السرعة.
     this.activeOrders = 0;
     this.onError = onError;
@@ -186,8 +201,11 @@ export class SupabaseWatcher {
       // ★ جسر الإشعارات العامة (غير الطلبات): كم دُفع، كم وُسِم،
       //   وكم محاولة باءت بالفشل لأن الدالتين غير منفّذتين.
       notifyPushed: 0,
+      notifySse: 0,
       notifyMarked: 0,
       notifyUnavailable: 0,
+      // ★ كم مرة دارت مضخة الإشعارات — تُقرأ من /api/health
+      notifyPumps: 0,
       // ★ جولة كاملة مقابل بوابة (للقراءة من /api/health): `gated`
       //   كم مرة اكتفت البوابة بالقياس، و`fullRounds` كم جولة كاملة
       //   فُتحت نافذتها. منهما يُحسب الاستهلاك الحقيقي بلا تخمين.
@@ -198,6 +216,12 @@ export class SupabaseWatcher {
       //   تخميناً.
       purgeRuns: 0,
       purgedRows: 0,
+      // ★ حذف الدردشة نهائياً بعد ٢٤ ساعة: كم رسالة حُذفت من القاعدة،
+      //   وكم صورة حُذفت من حاوية التخزين — يُقرآن من /api/health.
+      chatRowsPurged: 0,
+      chatFilesPurged: 0,
+      chatFileRuns: 0,
+      chatFileErrors: 0,
     };
     // ★ جسر الإشعارات العامة: علامة البداية يضعها أول دورة بنفسه
     //   (`_pushNotificationRows`) عند «الآن» ناقص هذه النافذة، فلا
@@ -231,7 +255,39 @@ export class SupabaseWatcher {
     // أول فحص فوراً (لا انتظار)، ثم [_loop] يقرر الباقي.
     this._lastWait = 0;
     this._loop();
+    this._startNotifyPump();
     return true;
+  }
+
+  /**
+   * ★ مضخة الإشعارات العامة — كل `notifyPumpMs` (ثانية واحدة).
+   *
+   *   لماذا مؤقّت مستقل: استطلاع الطلبات يتكيّف (٢ ثانية حيّة / حتى
+   *   ٣٠ ثانية سكوناً). صفوف `notifications` — حجز طبيب، محفظة، اعتماد
+   *   وصفة، كود خصم، إعلان — تكتبها القاعدة لا جهاز، فلا نبضة لها،
+   *   فكانت تنتظر دورة السكون الطويلة. هنا تمرّ كل ثانية على دالة
+   *   واحدة صغيرة، فالإرسال يبدأ خلال ≈ثانية مهما كان السكون.
+   *
+   *   الإرسال نفسه دفعيّ: كل الصفوف وكل الأجهزة معاً (Promise.allSettled
+   *   داخل `_pushNotificationRows`) ⇒ آيفون وأندرويد يرنّان في اللحظة.
+   */
+  _startNotifyPump() {
+    if (this._notifyPumpOn || !this.enabled) return;
+    this._notifyPumpOn = true;
+    const step = async () => {
+      if (!this._notifyPumpOn) return;
+      try {
+        await this._pushNotificationRows();
+        this.stats.notifyPumps += 1;
+      } catch (_) {
+        // الدالة تحمي نفسها؛ هذا حرس أخير فلا يموت المؤقّت.
+      }
+      if (!this._notifyPumpOn) return;
+      this._notifyPumpTimer = setTimeout(step, this.notifyPumpMs);
+      this._notifyPumpTimer.unref?.();
+    };
+    this._notifyPumpTimer = setTimeout(step, 0);
+    this._notifyPumpTimer.unref?.();
   }
 
   /**
@@ -376,6 +432,9 @@ export class SupabaseWatcher {
   stop() {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
+    this._notifyPumpOn = false;
+    if (this._notifyPumpTimer) clearTimeout(this._notifyPumpTimer);
+    this._notifyPumpTimer = null;
   }
 
   /**
@@ -651,25 +710,15 @@ export class SupabaseWatcher {
   /**
    * phone => [tokens]. يُحدَّث كل ٦٠ ثانية لا كل دورة.
    *
-   * ★★ العطل الذي كان يُسكّت الهواتف: `is_active=false` لا يعني
-   *   «الجهاز مات»، بل «هذا الجهاز انتقل لحساب آخر» (قاعدة جهاز
-   *   واحد = حساب واحد داخل التطبيق). فمن بدل حساباته — أو من استعمل
-   *   نفس الهاتف لحسابين — أصبح أصمّ عن إشعارات حسابه الآخر نهائياً،
-   *   والتطبيق عنده مفتوح يعمل.
+   * ★★ قاعدة الخصوصية (٢٠٢٦-١١-٢٥، طلب صاحب العمل: «افرد كل رقم
+   *   وحساباته ورسائله الخاصة — لا تظهرها للجميع»):
+   *   **توكن واحد = حساب واحد**.
    *
-   * ★★ تصحيح ٢٠٢٦-١٠-١٢ (طلب: «عند تسجيل الخروج لا تُرسَل إشعارات»):
-   *   الدواء نفسه كان الداء: المعيار تحوّل إلى «حيوية الجهاز»
-   *   (`last_seen_at` خلال ٢١ يوماً) وحده، فبقيت إشعارات من **خرج** من
-   *   حسابه تنزل إلى جواله — لأن الخروج يُعطّل الصف
-   *   (`deactivate_own_push_tokens`) ولا يمسّ «آخر ظهور».
-   *   الآن الصف المعطَّل لا يُرسَل له إلا ببينة واحدة: **نفس التوكن
-   *   حيّ (`is_active=true`) على حساب آخر في هذه الدورة** — أي أن
-   *   الجهاز نفسه داخل تطبيقٍ الآن لصاحبه، وهو من استعمال حسابين على
-   *   هاتف واحد. فهذه هي الحالة التي أصمّها المعيار الصارم سابقاً
-   *   (ومنها هاتف الأدمن: صفّه معطَّل منذ ٢٠٢٦-١٠-٠٩)، ومن خرج ولم
-   *   يرجع بحساب آخر على جهازه يسكت نهائياً.
-   *   المعطَّل الذي أُسكت يُعدّ في `tokenInactive` ويظهر في
-   *   `/api/health`، فلو صمت هاتف يكون السبب رقماً لا تخميناً.
+   *   كان الصف المعطَّل (`is_active=false`) يُرسَل له إن كان توكن جهازه
+   *   حيّاً على حساب آخر — أي أن من بدّل حسابه على الهاتف يظلّ يستقبل
+   *   إشعارات الحساب القديم **ونصّ رسائله الخاصة** وهو داخل حساب غيره.
+   *   أُلغي: المعطَّل صامت دائماً، والتوكن لا يخدم إلا أحدث حساب حيّ
+   *   سجّله. من خرج من حسابه لا تصله رسائله على جهاز غيره.
    */
   async _loadTokens() {
     try {
@@ -681,15 +730,19 @@ export class SupabaseWatcher {
         2000,
         'id',
       );
-      // التوكنات التي عليها حساب داخل التطبيق الآن.
-      const liveTokens = new Set();
+      // توكن واحد = حساب واحد: إن بقي توكن الجهاز مسجّلاً لرقمين (تبديل
+      // حساب لم يُعطّل القديم) يخدم أحدث صفّ حيّ فقط — فلا يصل نصّ رسالة
+      // رقمٍ ما إلى جهازٍ داخل حساب آخر.
+      const tokenOwner = new Map();
       for (const r of rows) {
-        if (r.is_active === true) {
-          const t = String(r.token || '').trim();
-          if (t) liveTokens.add(t);
-        }
+        if (r.is_active !== true) continue;
+        const phone = String(r.user_phone || '').trim();
+        const token = String(r.token || '').trim();
+        if (!phone || !token) continue;
+        const seen = Date.parse(String(r.last_seen_at || '')) || 0;
+        const prev = tokenOwner.get(token);
+        if (!prev || seen > prev.seen) tokenOwner.set(token, { phone, seen });
       }
-      const cutoff = Date.now() - this.tokenStaleMs;
       const next = new Map();
       const platforms = new Map();
       let phones = 0;
@@ -700,15 +753,15 @@ export class SupabaseWatcher {
         const phone = String(r.user_phone || '').trim();
         const token = String(r.token || '').trim();
         if (!phone || !token) continue;
-        const seen = Date.parse(String(r.last_seen_at || ''));
-        const fresh = Number.isFinite(seen) && seen >= cutoff;
+        // معطَّل = الجهاز خرج من هذا الحساب ⇒ لا إشعار من هذا الرقم له.
         if (r.is_active !== true) {
-          // مهجور أصلاً ⇒ لا. معطَّل وجهازه ليس داخل أي حساب الآن ⇒ من
-          // خرج، فلا إشعار له. معطَّل وجهازه حيّ على حساب صاحبه ⇒ يُرسَل.
-          if (!fresh || !liveTokens.has(token)) {
-            silent += 1;
-            continue;
-          }
+          silent += 1;
+          continue;
+        }
+        // التوكن يخدم حساباً آخر الآن ⇒ لا يُرسَل له إشعار هذا الرقم.
+        if (tokenOwner.get(token)?.phone !== phone) {
+          silent += 1;
+          continue;
         }
         const list = next.get(phone) || [];
         if (!list.includes(token)) list.push(token);
@@ -763,7 +816,23 @@ export class SupabaseWatcher {
       this._tokensAt = Date.now();
       await this._loadTokens();
     }
-    const list = [...new Set(this.tokens?.get(key) || [])];
+    let list = [...new Set(this.tokens?.get(key) || [])];
+    if (!list.length && Date.now() - (this._tokensAt || 0) > 3000) {
+      // ★★ جهاز سُجّل للتوّ (تثبيت جديد، أول دخول، أو تبديل حساب) وما
+      //   زالت قائمة الخادم قديمة: نعيد قراءتها فوراً بدل انتظار ٦٠
+      //   ثانية — وإلا ضاع أول إشعار على الجهاز الجديد. نداء واحد
+      //   مشترك بين كل الإشعارات المتزامنة لا نداء لكل هاتف.
+      if (!this._tokenReload) {
+        this._tokenReload = (async () => {
+          this._tokensAt = Date.now();
+          await this._loadTokens();
+        })().finally(() => {
+          this._tokenReload = null;
+        });
+      }
+      await this._tokenReload;
+      list = [...new Set(this.tokens?.get(key) || [])];
+    }
     if (!list.length) {
       // ★ سجل صريح: كان الصمت هنا يُخفي عطلاً كاملاً (توكن معطّل أو
       //   لم يُسجَّل بعد) فلا يُعرف لماذا «لا تأتي الإشعارات».
@@ -967,18 +1036,101 @@ export class SupabaseWatcher {
       const queue = await rpc('purge_queue_notifications', {
         p_minutes: minutes,
       });
+      // ★★ رسائل الدردشة: حذف نهائي من القاعدة بعد ٢٤ ساعة (وإشعاراتها
+      //    معها داخل الدالة نفسها). نداؤها هنا يعني أن الحذف مضمون من
+      //    السيرفر حتى لو لم يفتح أحد التطبيق. إن كانت الدالة غير
+      //    مثبتة بعد فلا نُفشل بقية التنظيف.
+      let chatRows = 0;
+      try {
+        chatRows = await rpc('doctor_chat_purge', { p_hours: 24 });
+      } catch {
+        // غير مثبتة على القاعدة — تُتخطّى بصمت.
+      }
       this.lastStatus = 200;
       this.stats.purgeRuns += 1;
       this.stats.purgedRows += done + queue;
+      this.stats.chatRowsPurged += chatRows;
       if (done + queue > 0) {
         this.onLog(
           `تنظيف الإشعارات: حُذف ${done} إشعار مكتمل/مرفوض أقدم من ٢٤ ساعة، ` +
             `و${queue} صفّاً من بقية الطابور`,
         );
       }
-      return done + queue;
+      if (chatRows > 0) {
+        this.onLog(`حذف الدردشة: ${chatRows} رسالة أقدم من ٢٤ ساعة`);
+      }
+      return done + queue + chatRows;
     } catch (err) {
       this.onError(`تنظيف الإشعارات: ${err.message}`);
+      return 0;
+    }
+  }
+
+  /**
+   * ★★ حذف صور الدردشة من حاوية التخزين بعد ٢٤ ساعة — «نهائياً من
+   *    القاعدة» لا تكتمل إلا بها: حذف صفّ الرسالة لا يمسّ الملف المرفوع،
+   *    فيبقى رابط الصورة حيّاً في `images/chat/` أبد الدهر.
+   *
+   *   · قائمة مجلد `chat` بصفحات ١٠٠٠ (مفتاح السيرفر يقرأ ويكتب فيه —
+   *     مُثبت بفحص رفع/حذف فعلي).
+   *   · يُحذف الملف فقط إذا كان زمنه معروفاً وأقدم من ٢٤ ساعة؛ مجهول
+   *     الزمن يبقى (لا نحذف ما لا نعرف عمره).
+   *   · اسم الملف يبدأ بطابع زمني بالملي ثانية من التطبيق، فهو مصدر
+   *     احتياطي للزمن إن غاب `created_at` من الرد.
+   */
+  async _purgeChatFiles() {
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    const headers = {
+      apikey: this.key,
+      Authorization: `Bearer ${this.key}`,
+      'Content-Type': 'application/json',
+    };
+    let removed = 0;
+    try {
+      for (let page = 0; page < 20; page += 1) {
+        const res = await fetch(
+          `${this.url}/storage/v1/object/list/images`,
+          {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              prefix: 'chat',
+              limit: 1000,
+              offset: page * 1000,
+              sortBy: { column: 'created_at', order: 'asc' },
+            }),
+          },
+        );
+        if (!res.ok) throw new Error(`قائمة الصور → ${res.status}`);
+        const items = await res.json();
+        if (!Array.isArray(items) || !items.length) break;
+        await Promise.all(
+          items.map(async (it) => {
+            const name = String(it?.name || '').trim();
+            if (!name || name.includes('/')) return;
+            const stamp =
+              Date.parse(it?.created_at || '') ||
+              Date.parse(it?.updated_at || '') ||
+              (Number(/^(\d{13})/.exec(name)?.[1]) || NaN);
+            if (!Number.isFinite(stamp) || stamp > cutoff) return;
+            const del = await fetch(
+              `${this.url}/storage/v1/object/images/chat/${encodeURIComponent(name)}`,
+              { method: 'DELETE', headers },
+            );
+            if (del.ok) removed += 1;
+          }),
+        );
+        if (items.length < 1000) break;
+      }
+      this.stats.chatFileRuns += 1;
+      this.stats.chatFilesPurged += removed;
+      if (removed > 0) {
+        this.onLog(`حذف صور الدردشة: ${removed} صورة أقدم من ٢٤ ساعة`);
+      }
+      return removed;
+    } catch (err) {
+      this.stats.chatFileErrors += 1;
+      this.onError(`حذف صور الدردشة: ${err.message}`);
       return 0;
     }
   }
@@ -1026,79 +1178,115 @@ export class SupabaseWatcher {
    *   صفّه وحده كعادته.
    */
   async _pushNotificationRows() {
-    if (!this.fcm?.canSend || this._notifyDisabled) return;
-    // أول دورة بعد الإقلاع: نضع علامة البداية عند «الآن» ناقص النافذة
-    // ولا ننبّه على ما كُتب قبل أن نكون هنا (التطبيق يعرضه باستطلاعه).
-    // بلا هذا السطر يكون `p_after` نصّاً فارغاً ⇒ خطأ توقيت 400 ⇒
-    // يُحسب «دالة غير موجودة» ويُطفأ الجسر بعد ثلاث دورات.
-    if (!this._notifyAfter) {
-      const boot = new Date(Date.now() - this.notifyLookbackMs);
-      this._notifyAfter = boot.toISOString();
-      this.onLog(
-        `جسر الإشعارات العامة يعمل — نافذة ${this.notifyLookbackMs / 1000}ث من ${this._notifyAfter}`,
-      );
-      return;
-    }
-    const rows = await this._unpushedRows(this._notifyAfter);
-    if (rows === null) {
-      // الدالة غير منشورة بعد ⇒ نتوقف بعد ثلاث محاولات متتالية، لا
-      // كل دورة: نداء 404 كل ثانيتين حملٌ بلا فائدة.
-      this.stats.notifyUnavailable += 1;
-      this._notifyFails += 1;
-      if (this._notifyFails >= 3) {
-        this._notifyDisabled = true;
+    // ★ لم يعد FCM شرطاً: دفع `notify.new` عبر SSE يخدم التطبيق المفتوح
+    //   حتى لو تعطّل مفتاح Google — و`_push` ترجع فارغة وحدها بلا FCM.
+    if (this._notifyDisabled) return;
+    // ★ المضخة (كل ثانية) وجولة الطلبات (كل دورة) تناديان هذه الدالة؛
+    //   لا تداخل: وإلا قُرئ الصفّ نفسه مرتين وأُرسل مرتين.
+    if (this._notifyBusy) return;
+    this._notifyBusy = true;
+    try {
+      // أول دورة بعد الإقلاع: نضع علامة البداية عند «الآن» ناقص النافذة
+      // ولا ننبّه على ما كُتب قبل أن نكون هنا (التطبيق يعرضه باستطلاعه).
+      // بلا هذا السطر يكون `p_after` نصّاً فارغاً ⇒ خطأ توقيت 400 ⇒
+      // يُحسب «دالة غير موجودة» ويُطفأ الجسر بعد ثلاث دورات.
+      if (!this._notifyAfter) {
+        const boot = new Date(Date.now() - this.notifyLookbackMs);
+        this._notifyAfter = boot.toISOString();
         this.onLog(
-          '★ جسر الإشعارات العامة أُطفئ: الدالتان غير منفّذتين — شغّل SQL_PUSH_ALL_EVENTS.sql ثم أعد تشغيل notify.service',
+          `جسر الإشعارات العامة يعمل — نافذة ${this.notifyLookbackMs / 1000}ث من ${this._notifyAfter}`,
         );
+        return;
       }
-      return;
-    }
-    this._notifyFails = 0;
-    if (!rows.length) return;
-    const sentIds = [];
-    for (const r of rows) {
-      const created = String(r.created_at || '');
-      if (created > this._notifyAfter) this._notifyAfter = created;
-      const type = String(r.type || '').trim();
-      const phone = String(r.user_phone || '').trim();
-      const title = String(r.title || '').trim();
-      if (!phone || !title) continue;
-      const orderId = String(r.order_id || '').trim();
-      // نوع طلب **ولهُ** معرّف طلب ⇒ مساره الأصلي في الخادم يَدقّه،
-      // فلا نزيده عليه (وإلا دقّ الهاتف مرتين لحدث واحد).
-      // ★ بلا معرّف ليس حدث طلب: حجز الدكتور يُسمّى `driver_request`
-      //   و`order_id` عنده مجرّد — لا حلقة أخرى تراه، فاستثناءُه كان
-      //   يترك الحجز بلا رنين والهاتف مقفول.
-      if (orderId && SupabaseWatcher.ORDER_TYPES.has(type)) continue;
-      // ★ لا إعلان عام هنا: صفّ بـ`user_phone = '*'` موجّه لصندوق
-      //   الوارد عند كل حساب، لا رسالة هاتف معيّن. كان بثّ عام كهذا
-      //   من `product.deleted` يُسمع كل زبون نغمة لموضوع لا يخصّه،
-      //   وحُذف ذلك البثّ من قبل بقصد — فلا نعيده من باب آخر.
-      //   الدالة نفسها تستثني هذه الصفوف؛ هذا الحرس الثاني لا ثالث
-      //   له لو تبدّل نصّ الدالة على السيرفر.
-      if (r.is_global === true || phone === '*') continue;
-      const data = {
-        rowId: String(r.id || ''),
-        orderId,
-        type: type || 'alert',
-        sound: String(r.sound || '') || type || 'alert',
-        serial: '',
-        link: String(r.link_url || ''),
-      };
-      const ok = await this._push(
-        phone,
-        title,
-        String(r.body || ''),
-        data,
-        String(r.image_url || ''),
+      const rows = await this._unpushedRows(this._notifyAfter);
+      if (rows === null) {
+        // الدالة غير منشورة بعد ⇒ نتوقف بعد ثلاث محاولات متتالية، لا
+        // كل دورة: نداء 404 كل ثانية حملٌ بلا فائدة.
+        this.stats.notifyUnavailable += 1;
+        this._notifyFails += 1;
+        if (this._notifyFails >= 3) {
+          this._notifyDisabled = true;
+          this.onLog(
+            '★ جسر الإشعارات العامة أُطفئ: الدالتان غير منفّذتين — شغّل SQL_PUSH_ALL_EVENTS.sql ثم أعد تشغيل notify.service',
+          );
+        }
+        return;
+      }
+      this._notifyFails = 0;
+      if (!rows.length) return;
+
+      // ★★ دفعة واحدة بدل صفٍّ صفّاً: كان كل صفّ ينتظر ردّ Google
+      //   (≈١٠٠–٣٠٠ مللي) قبل التالي، فصفوف متتابعة تصل بعد ثانية أو
+      //   أكثر من بعضها. الآن كل الصفوف وكل الأجهزة تنطلق معاً ⇒
+      //   آيفون وأندرويد يرنّان في اللحظة نفسها.
+      const jobs = [];
+      let cursor = this._notifyAfter;
+      for (const r of rows) {
+        const created = String(r.created_at || '');
+        if (created > cursor) cursor = created;
+        const type = String(r.type || '').trim();
+        const phone = String(r.user_phone || '').trim();
+        const title = String(r.title || '').trim();
+        if (!phone || !title) continue;
+        const orderId = String(r.order_id || '').trim();
+        // ★ طريق السعادة: صفّ جديد ⇒ حدث فوري لصاحبه وحده عبر البثّ
+        //   المفتوح. التطبيق يسحب إشعاره في نفس اللحظة، وفحصه الدوري
+        //   البطيء (20 ثانية) يبقى شبكة أمان للاتصالات المقطوعة.
+        const sse = this.hub?.sendToPhones(
+          'notify.new',
+          { id: String(r.id || ''), type: type || 'alert' },
+          [phone],
+        );
+        if (sse) this.stats.notifySse += sse;
+        // نوع طلب **ولهُ** معرّف طلب ⇒ مساره الأصلي في الخادم يَدقّه،
+        // فلا نزيده عليه (وإلا دقّ الهاتف مرتين لحدث واحد).
+        // ★ بلا معرّف ليس حدث طلب: حجز الدكتور يُسمّى `driver_request`
+        //   و`order_id` عنده مجرّد — لا حلقة أخرى تراه، فاستثناءُه كان
+        //   يترك الحجز بلا رنين والهاتف مقفول.
+        if (orderId && SupabaseWatcher.ORDER_TYPES.has(type)) continue;
+        // ★ لا إعلان عام هنا: صفّ بـ`user_phone = '*'` موجّه لصندوق
+        //   الوارد عند كل حساب، لا رسالة هاتف معيّن. كان بثّ عام كهذا
+        //   من `product.deleted` يُسمع كل زبون نغمة لموضوع لا يخصّه،
+        //   وحُذف ذلك البثّ من قبل بقصد — فلا نعيده من باب آخر.
+        //   الدالة نفسها تستثني هذه الصفوف؛ هذا الحرس الثاني لا ثالث
+        //   له لو تبدّل نصّ الدالة على السيرفر.
+        if (r.is_global === true || phone === '*') continue;
+        jobs.push({
+          id: String(r.id || ''),
+          phone,
+          title,
+          body: String(r.body || ''),
+          image: String(r.image_url || ''),
+          data: {
+            rowId: String(r.id || ''),
+            orderId,
+            type: type || 'alert',
+            sound: String(r.sound || '') || type || 'alert',
+            serial: '',
+            link: String(r.link_url || ''),
+          },
+        });
+      }
+      // المؤشّر يتقدّم على المقروء كله حتى لو فشل إرسال صفّ — كما كان
+      // من قبل: الفشل يعني «لا جهاز لذلك الحساب»، لا إعادة محاولة أبدية.
+      this._notifyAfter = cursor;
+      if (!jobs.length) return;
+
+      const results = await Promise.allSettled(
+        jobs.map((j) => this._push(j.phone, j.title, j.body, j.data, j.image)),
       );
-      if (!ok.length) continue;
-      this.stats.notifyPushed += 1;
-      sentIds.push(String(r.id));
-    }
-    if (sentIds.length) {
+      const sentIds = [];
+      results.forEach((r, i) => {
+        if (r.status === 'fulfilled' && Array.isArray(r.value) && r.value.length) {
+          this.stats.notifyPushed += 1;
+          sentIds.push(jobs[i].id);
+        }
+      });
+      if (!sentIds.length) return;
       const marked = await this._markRowsPushed(sentIds);
       this.stats.notifyMarked += marked;
+    } finally {
+      this._notifyBusy = false;
     }
   }
 
@@ -1460,6 +1648,8 @@ export class SupabaseWatcher {
       if (Date.now() - this._purgeAt >= this.purgeMs) {
         this._purgeAt = Date.now();
         await this._purgeNotifications();
+        // ★ صور الدردشة من حاوية التخزين — بعد حذف صفوفها من القاعدة.
+        await this._purgeChatFiles();
       }
       // ★ البوابة أولاً (٢٠٢٦-١١-٠٦): إن لم يتحرّك شيء في القاعدة
       //   ولا يوجد طلب نشط ولا حان المسح، تُدفَع ٤٫٢٩ كيلوبايت

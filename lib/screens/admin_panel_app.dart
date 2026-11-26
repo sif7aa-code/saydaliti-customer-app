@@ -87,45 +87,53 @@ class _AdminRootState extends State<_AdminRoot> {
 
   @override
   Widget build(BuildContext context) {
-    final auth = AuthService.instance;
+    // ★ الجذر يستمع لحالة الدخول: شاشة الدخول هي `home` هنا، وبعد
+    //   نجاح الدخول لا يوجد مسار يُغلق ليعود إلى ما تحته — فبلا هذا
+    //   الاستماع تبقى واجهة الدخول معروضة وكأن الدخول لم يحدث.
+    return ListenableBuilder(
+      listenable: AuthService.instance,
+      builder: (context, _) {
+        final auth = AuthService.instance;
 
-    if (!auth.isLoggedIn) return const LoginScreen();
+        if (!auth.isLoggedIn) return const LoginScreen();
 
-    if (auth.accountRemoved) {
-      return _AdminNotice(
-        icon: Icons.person_off_rounded,
-        color: AppColors.danger,
-        title: 'الحساب غير متاح',
-        message: 'حذف هذا الحساب أو عُطّل من النظام، فلا يمكن فتح اللوحة.\n'
-            'سجّل الدخول بحساب آخر أو راجع الإدارة.',
-        onLogout: _logout,
-      );
-    }
+        if (auth.accountRemoved) {
+          return _AdminNotice(
+            icon: Icons.person_off_rounded,
+            color: AppColors.danger,
+            title: 'الحساب غير متاح',
+            message: 'حذف هذا الحساب أو عُطّل من النظام، فلا يمكن فتح اللوحة.\n'
+                'سجّل الدخول بحساب آخر أو راجع الإدارة.',
+            onLogout: _logout,
+          );
+        }
 
-    if (!auth.isAdmin) {
-      return _AdminNotice(
-        icon: Icons.admin_panel_settings_rounded,
-        color: AppColors.warning,
-        title: 'هذا الحساب ليس مدير نظام',
-        message:
-            'هذا التطبيق للوحة تحكم الأدمن فقط. سجّل الدخول بالحساب الذي له '
-            'صلاحية الأدمن، أو استخدم تطبيق «اطباء ذي قار» للزبائن.',
-        onLogout: _logout,
-      );
-    }
+        if (!auth.isAdmin) {
+          return _AdminNotice(
+            icon: Icons.admin_panel_settings_rounded,
+            color: AppColors.warning,
+            title: 'هذا الحساب ليس مدير نظام',
+            message:
+                'هذا التطبيق للوحة تحكم الأدمن فقط. سجّل الدخول بالحساب الذي له '
+                'صلاحية الأدمن، أو استخدم تطبيق «اطباء ذي قار» للزبائن.',
+            onLogout: _logout,
+          );
+        }
 
-    final phone = auth.phone ?? '';
-    if (_gateFor != phone) {
-      _gateFor = phone;
-      WidgetsBinding.instance.addPostFrameCallback((_) => _openGate());
-    }
+        final phone = auth.phone ?? '';
+        if (_gateFor != phone) {
+          _gateFor = phone;
+          WidgetsBinding.instance.addPostFrameCallback((_) => _openGate());
+        }
 
-    return _AdminEntry(
-      name: auth.name ?? 'مدير النظام',
-      phone: phone,
-      busy: _running,
-      onOpen: _openGate,
-      onLogout: _logout,
+        return _AdminEntry(
+          name: auth.name ?? 'مدير النظام',
+          phone: phone,
+          busy: _running,
+          onOpen: _openGate,
+          onLogout: _logout,
+        );
+      },
     );
   }
 }

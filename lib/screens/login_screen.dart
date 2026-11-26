@@ -13,6 +13,7 @@ import '../services/notification_center.dart';
 import '../services/push_service.dart';
 import '../services/supabase_service.dart';
 import '../services/system_notification.dart';
+import '../widgets/auth_inputs.dart';
 import '../widgets/auth_shell.dart';
 import '../widgets/whatsapp_code_field.dart';
 
@@ -294,7 +295,6 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       ),
       footer: AuthFooterWave(
-        icon: Icons.person_add_alt_rounded,
         label: 'ليس لديك حساب؟ أنشئ حساباً جديداً',
         onPressed: _goToRegister,
       ),
@@ -352,186 +352,35 @@ class _LoginCardState extends State<_LoginCard> {
     final passwordController = widget.passwordController;
     final obscurePassword = widget.obscurePassword;
     final isLoading = widget.isLoading;
-    return Container(
-      margin: const EdgeInsets.only(top: 10),
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: AppColors.divider),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.primary.withValues(alpha: 0.10),
-            blurRadius: 22,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
+    return AuthCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            'تسجيل الدخول',
-            textAlign: TextAlign.center,
-            style: GoogleFonts.cairo(
-              color: AppColors.textPrimary,
-              fontSize: 24,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'أهلاً بعودتك، سجل دخولك لمتابعة خدماتك',
-            textAlign: TextAlign.center,
-            style: GoogleFonts.cairo(
-              color: AppColors.textSecondary,
-              fontSize: 13.5,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 10),
-          // ★ فاصل أيقونة نبضة القلب تحت العنوان — كما في التصميم.
-          Row(
-            children: [
-              const Expanded(child: Divider(color: AppColors.divider)),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                child: Icon(
-                  Icons.monitor_heart_rounded,
-                  size: 18,
-                  color: AppColors.primary,
-                ),
-              ),
-              const Expanded(child: Divider(color: AppColors.divider)),
-            ],
+          const AuthCardHeading(
+            icon: Icons.person_add_alt_1_rounded,
+            title: 'تسجيل الدخول',
+            subtitle: 'أهلاً بعودتك، سجل دخولك لمتابعة خدماتك',
           ),
           const SizedBox(height: 14),
-          // ★ الحقول بتسمية فوقها ورماديّ مملوء داخل حدٍّ دائري.
-          Text(
-            'رقم الهاتف',
-            style: GoogleFonts.cairo(
-              color: AppColors.textPrimary,
-              fontSize: 14,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 5),
-          TextFormField(
+          const AuthFieldLabel('رقم الهاتف'),
+          AuthPhoneField(
             controller: phoneController,
-            textDirection: TextDirection.ltr,
-            keyboardType: TextInputType.phone,
-            maxLength: 11,
-            inputFormatters: [
-              FilteringTextInputFormatter.digitsOnly,
-              LengthLimitingTextInputFormatter(11),
-            ],
-            decoration: InputDecoration(
-              hintText: '07XXXXXXXXX',
-              counterText: '',
-              filled: true,
-              fillColor: AppColors.background,
-              prefixIcon: const Icon(
-                Icons.phone_rounded,
-                color: AppColors.primary,
-              ),
-              contentPadding: const EdgeInsets.symmetric(vertical: 12),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: const BorderSide(color: AppColors.divider),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: const BorderSide(
-                  color: AppColors.primary,
-                  width: 1.6,
-                ),
-              ),
-            ),
-            validator: (v) => AuthFields.phoneError(v ?? ''),
+            hint: '07XXXXXXXXX',
           ),
           const SizedBox(height: 12),
-          Text(
-            'كلمة المرور',
-            style: GoogleFonts.cairo(
-              color: AppColors.textPrimary,
-              fontSize: 14,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 5),
-          TextFormField(
+          const AuthFieldLabel('كلمة المرور'),
+          AuthPasswordField(
             controller: passwordController,
-            obscureText: obscurePassword,
-            decoration: InputDecoration(
-              filled: true,
-              fillColor: AppColors.background,
-              prefixIcon: const Icon(
-                Icons.lock_rounded,
-                color: AppColors.primary,
-              ),
-              suffixIcon: IconButton(
-                icon: Icon(
-                  obscurePassword
-                      ? Icons.visibility_rounded
-                      : Icons.visibility_off_rounded,
-                  color: AppColors.textHint,
-                ),
-                onPressed: widget.onTogglePassword,
-              ),
-              contentPadding: const EdgeInsets.symmetric(vertical: 12),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: const BorderSide(color: AppColors.divider),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: const BorderSide(
-                  color: AppColors.primary,
-                  width: 1.6,
-                ),
-              ),
-            ),
-            // ★ إجبارية بلا فراغ وحده: كان `v.isEmpty` وحده يقبل
-            //   «مسافة» فيُطلق رحلة شبكة كاملة بلا كلمة حقيقية.
-            //   لا حدّ طول هنا: كلمة حسابٍ قديم قصيرة يجب أن يدخل بها،
-            //   والصحة قرار القاعدة لا القرار المحلي.
+            obscure: obscurePassword,
+            onToggle: widget.onTogglePassword,
             validator: (v) => AuthFields.loginPasswordError(v ?? ''),
           ),
-          const SizedBox(height: 14),
-          // ★ زر الدخول كرويّ تماماً مع سهم إلى اليمين — كما في التصميم.
-          SizedBox(
-            height: 50,
-            child: FilledButton(
-              onPressed: isLoading ? null : widget.onSubmit,
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                shape: const StadiumBorder(),
-              ),
-              child: isLoading
-                  ? const SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.5,
-                        color: Colors.white,
-                      ),
-                    )
-                  : Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'تسجيل الدخول',
-                          style: GoogleFonts.cairo(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        const Icon(Icons.east_rounded, size: 20),
-                      ],
-                    ),
-            ),
+          const SizedBox(height: 16),
+          AuthSubmitButton(
+            label: 'تسجيل الدخول',
+            icon: Icons.login_rounded,
+            busy: isLoading,
+            onPressed: isLoading ? null : widget.onSubmit,
           ),
           const SizedBox(height: 14),
           Row(
